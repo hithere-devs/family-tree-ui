@@ -82,13 +82,36 @@ function pcEdgesCross(a: ParentChildEdge, b: ParentChildEdge): boolean {
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
+const LS_KEY = 'family-tree-canvas-view';
+
+function loadSavedView(): {
+	offset: { x: number; y: number };
+	zoom: number;
+} | null {
+	try {
+		const raw = localStorage.getItem(LS_KEY);
+		if (!raw) return null;
+		const v = JSON.parse(raw);
+		if (
+			typeof v.zoom === 'number' &&
+			v.offset?.x != null &&
+			v.offset?.y != null
+		)
+			return v;
+	} catch {
+		/* ignore */
+	}
+	return null;
+}
+
 export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 	const { state, dispatch, centerPersonId } = useFamilyTree();
 	const containerRef = useRef<HTMLDivElement>(null);
 
-	/* ---- pan / zoom state ---- */
-	const [offset, setOffset] = useState({ x: 0, y: 0 });
-	const [zoom, setZoom] = useState(1);
+	/* ---- pan / zoom state (restore from localStorage if available) ---- */
+	const saved = useRef(loadSavedView());
+	const [offset, setOffset] = useState(saved.current?.offset ?? { x: 0, y: 0 });
+	const [zoom, setZoom] = useState(saved.current?.zoom ?? 1);
 	const [isDragging, setIsDragging] = useState(false);
 	const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 	const [dragStartOffset, setDragStartOffset] = useState({ x: 0, y: 0 });
@@ -129,22 +152,30 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 		return map;
 	}, [positions]);
 
-	/* ---- initialise offset to viewport centre & track resizes ---- */
+	/* ---- initialise offset to viewport centre (only if no saved view) & track resizes ---- */
 
 	useEffect(() => {
 		const el = containerRef.current;
 		if (!el) return;
 
-		const centre = () => {
+		// Only auto-centre if there was no saved position
+		if (!saved.current) {
 			const { width, height } = el.getBoundingClientRect();
 			setOffset({ x: width / 2, y: height / 2 });
-		};
-		centre();
-
-		const ro = new ResizeObserver(centre);
-		ro.observe(el);
-		return () => ro.disconnect();
+		}
+		// Clear the ref so future "Reset View" calls don't fight
+		saved.current = null;
 	}, []);
+
+	/* ---- persist offset & zoom to localStorage ---- */
+
+	useEffect(() => {
+		try {
+			localStorage.setItem(LS_KEY, JSON.stringify({ offset, zoom }));
+		} catch {
+			/* quota errors, ignore */
+		}
+	}, [offset, zoom]);
 
 	/* ---- native wheel handler (non-passive so we can preventDefault) ---- */
 
