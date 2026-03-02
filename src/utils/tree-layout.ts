@@ -257,11 +257,44 @@ function layoutRow(
         return xs.length > 0 ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
     });
 
-    /* ---- sort units by ideal X ---- */
+    /* ---- group units by parent family so siblings stay together ---- */
 
-    const order = units
-        .map((_, i) => i)
-        .sort((a, b) => idealXs[a] - idealXs[b]);
+    // Compute a "family key" for each unit based on its members' parents
+    const unitFamilyKeys: string[] = units.map((unit) => {
+        const parentSets = new Set<string>();
+        for (const uid of unit) {
+            const p = people[uid];
+            if (p && p.parentIds.length > 0) {
+                parentSets.add([...p.parentIds].sort().join(','));
+            }
+        }
+        // If all members of the unit share exactly one parent set, use that
+        if (parentSets.size === 1) return [...parentSets][0];
+        // Otherwise treat as independent
+        return `__indep_${unit[0]}`;
+    });
+
+    // Group unit indices by family key
+    const familyGroupMap = new Map<string, number[]>();
+    for (let i = 0; i < units.length; i++) {
+        const key = unitFamilyKeys[i];
+        if (!familyGroupMap.has(key)) familyGroupMap.set(key, []);
+        familyGroupMap.get(key)!.push(i);
+    }
+
+    // For each group: sort internally by idealX, compute group ideal X
+    const familyGroups = [...familyGroupMap.entries()].map(([_key, indices]) => {
+        indices.sort((a, b) => idealXs[a] - idealXs[b]);
+        const groupIdealX =
+            indices.reduce((s, i) => s + idealXs[i], 0) / indices.length;
+        return { indices, groupIdealX };
+    });
+
+    // Sort groups by group ideal X
+    familyGroups.sort((a, b) => a.groupIdealX - b.groupIdealX);
+
+    // Flatten to final sorted order
+    const order = familyGroups.flatMap((g) => g.indices);
     const sortedUnits = order.map((i) => units[i]);
     const sortedIdealXs = order.map((i) => idealXs[i]);
 

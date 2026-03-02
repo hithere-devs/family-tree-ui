@@ -230,8 +230,8 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 		const result: EdgeData[] = [];
 		const drawnSpouses = new Set<string>();
 
+		/* ---- spouse edges ---- */
 		for (const person of Object.values(state.people)) {
-			/* spouse edges */
 			if (person.spouseIds && person.spouseIds.length > 0) {
 				for (const sid of person.spouseIds) {
 					if (positionMap.has(person.id) && positionMap.has(sid)) {
@@ -254,35 +254,134 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 					}
 				}
 			}
+		}
 
-			/* parent-child edges */
+		/* ---- parent-child edges — grouped by parent family (brackets) ---- */
+		const familyMap = new Map<
+			string,
+			{ parentIds: string[]; childIds: string[] }
+		>();
+
+		for (const person of Object.values(state.people)) {
 			if (person.parentIds.length > 0 && positionMap.has(person.id)) {
-				const childPos = positionMap.get(person.id)!;
-				const parentPositions = person.parentIds
-					.filter((pid) => positionMap.has(pid))
-					.map((pid) => positionMap.get(pid)!);
-
-				if (parentPositions.length > 0) {
-					const junctionX =
-						parentPositions.reduce((s, p) => s + p.x, 0) /
-						parentPositions.length;
-					const parentBottomY = parentPositions[0].y + NODE_H / 2;
-					const childTopY = childPos.y - NODE_H / 2;
-					const midY = (parentBottomY + childTopY) / 2;
-
-					result.push({
-						key: `pc-${person.id}`,
-						type: 'parent-child',
-						path: `M ${junctionX} ${parentBottomY} L ${junctionX} ${midY} L ${childPos.x} ${midY} L ${childPos.x} ${childTopY}`,
-						junctionX,
-						childX: childPos.x,
-						parentBottomY,
-						midY,
-						childTopY,
-						color: DEFAULT_PC_COLOR,
+				const key = [...person.parentIds].sort().join(',');
+				if (!familyMap.has(key)) {
+					familyMap.set(key, {
+						parentIds: [...person.parentIds].sort(),
+						childIds: [],
 					});
 				}
+				familyMap.get(key)!.childIds.push(person.id);
 			}
+		}
+
+		// Pre-compute each family's geometry so we can stagger midY
+		interface FamilyGeo {
+			familyKey: string;
+			family: { parentIds: string[]; childIds: string[] };
+			junctionX: number;
+			parentBottomY: number;
+			childTopY: number;
+			baseMidY: number;
+			childPositions: { id: string; x: number; y: number }[];
+		}
+
+		const familyGeos: FamilyGeo[] = [];
+
+		for (const [familyKey, family] of familyMap) {
+			const parentPositions = family.parentIds
+				.filter((pid) => positionMap.has(pid))
+				.map((pid) => positionMap.get(pid)!);
+
+			if (parentPositions.length === 0) continue;
+
+			const junctionX =
+				parentPositions.reduce((s, p) => s + p.x, 0) / parentPositions.length;
+			const parentBottomY = parentPositions[0].y + NODE_H / 2;
+
+			const childPositions = family.childIds
+				.filter((cid) => positionMap.has(cid))
+				.map((cid) => ({ id: cid, ...positionMap.get(cid)! }));
+
+			if (childPositions.length === 0) continue;
+			childPositions.sort((a, b) => a.x - b.x);
+
+			const childTopY = childPositions[0].y - NODE_H / 2;
+			const baseMidY = (parentBottomY + childTopY) / 2;
+
+			familyGeos.push({
+				familyKey,
+				family,
+				junctionX,
+				parentBottomY,
+				childTopY,
+				baseMidY,
+				childPositions,
+			});
+		}
+
+		// Stagger midY for families that share the same row pair
+		const STAGGER = 14;
+		const rowPairGroups = new Map<string, FamilyGeo[]>();
+		for (const fg of familyGeos) {
+			const rpKey = `${fg.parentBottomY},${fg.childTopY}`;
+			if (!rowPairGroups.has(rpKey)) rowPairGroups.set(rpKey, []);
+			rowPairGroups.get(rpKey)!.push(fg);
+		}
+
+		const staggerMap = new Map<string, number>();
+		for (const group of rowPairGroups.values()) {
+			if (group.length <= 1) {
+				staggerMap.set(group[0].familyKey, 0);
+				continue;
+			}
+			// Sort by junction X to assign stagger predictably
+			group.sort((a, b) => a.junctionX - b.junctionX);
+			for (let i = 0; i < group.length; i++) {
+				const offset = (i - (group.length - 1) / 2) * STAGGER;
+				staggerMap.set(group[i].familyKey, offset);
+			}
+		}
+
+		// Build bracket paths with staggered midY
+		for (const fg of familyGeos) {
+			const midY = fg.baseMidY + (staggerMap.get(fg.familyKey) ?? 0);
+
+			// Build bracket path
+			let path = `M ${fg.junctionX} ${fg.parentBottomY} L ${fg.junctionX} ${midY}`;
+
+			if (fg.childPositions.length === 1) {
+				const child = fg.childPositions[0];
+				if (child.x !== fg.junctionX) {
+					path += ` L ${child.x} ${midY}`;
+				}
+				path += ` L ${child.x} ${fg.childTopY}`;
+			} else {
+				// Horizontal bar spanning from junction to all children
+				const leftX = Math.min(fg.junctionX, fg.childPositions[0].x);
+				const rightX = Math.max(
+					fg.junctionX,
+					fg.childPositions[fg.childPositions.length - 1].x,
+				);
+				path += ` M ${leftX} ${midY} L ${rightX} ${midY}`;
+
+				// Vertical drops to each child
+				for (const child of fg.childPositions) {
+					path += ` M ${child.x} ${midY} L ${child.x} ${fg.childTopY}`;
+				}
+			}
+
+			result.push({
+				key: `pc-${fg.familyKey}`,
+				type: 'parent-child',
+				path,
+				junctionX: fg.junctionX,
+				childX: fg.childPositions[Math.floor(fg.childPositions.length / 2)].x,
+				parentBottomY: fg.parentBottomY,
+				midY,
+				childTopY: fg.childTopY,
+				color: DEFAULT_PC_COLOR,
+			});
 		}
 
 		/* ---- detect crossings & assign colours ---- */
