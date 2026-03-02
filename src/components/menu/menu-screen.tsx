@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useFamilyTree } from '../../state/family-tree-context';
-import { LogOut, ShieldAlert, UserPlus } from 'lucide-react';
+import { LogOut, ShieldAlert, UserPlus, KeyRound } from 'lucide-react';
+import { ChangePasswordScreen } from '../change-password-screen';
 
 interface MenuScreenProps {
 	onLogout: () => void;
@@ -9,6 +10,13 @@ interface MenuScreenProps {
 export const MenuScreen: React.FC<MenuScreenProps> = ({ onLogout }) => {
 	const { state, dispatch, currentUser } = useFamilyTree();
 	const isAdmin = currentUser?.role === 'admin';
+	const [showChangePassword, setShowChangePassword] = useState(false);
+
+	if (showChangePassword) {
+		return (
+			<ChangePasswordScreen onComplete={() => setShowChangePassword(false)} />
+		);
+	}
 
 	return (
 		<div className='flex h-full w-full flex-col bg-gray-50'>
@@ -78,15 +86,26 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({ onLogout }) => {
 					<h2 className='px-2 text-xs font-bold uppercase tracking-wider text-gray-400'>
 						Account
 					</h2>
-					<button
-						onClick={onLogout}
-						className='flex w-full items-center space-x-3 rounded-2xl bg-white p-4 shadow-sm border border-gray-100 transition-colors hover:bg-red-50 hover:text-red-600 text-gray-700'
-					>
-						<div className='rounded-xl bg-red-50 p-2.5 text-red-500'>
-							<LogOut size={20} />
-						</div>
-						<span className='text-[15px] font-semibold'>Log out</span>
-					</button>
+					<div className='overflow-hidden rounded-2xl bg-white shadow-sm border border-gray-100'>
+						<button
+							onClick={() => setShowChangePassword(true)}
+							className='flex w-full items-center space-x-3 p-4 transition-colors hover:bg-gray-50 text-gray-700'
+						>
+							<div className='rounded-xl bg-lime-50 p-2.5 text-lime-600'>
+								<KeyRound size={20} />
+							</div>
+							<span className='text-[15px] font-semibold'>Change Password</span>
+						</button>
+						<button
+							onClick={onLogout}
+							className='flex w-full items-center space-x-3 border-t border-gray-100 p-4 transition-colors hover:bg-red-50 hover:text-red-600 text-gray-700'
+						>
+							<div className='rounded-xl bg-red-50 p-2.5 text-red-500'>
+								<LogOut size={20} />
+							</div>
+							<span className='text-[15px] font-semibold'>Log out</span>
+						</button>
+					</div>
 				</div>
 			</div>
 		</div>

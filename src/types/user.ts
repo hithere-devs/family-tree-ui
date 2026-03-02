@@ -5,4 +5,5 @@ export interface User {
     username: string;
     personId: string;
     role: UserRole;
+    mustChangePassword: boolean;
 }

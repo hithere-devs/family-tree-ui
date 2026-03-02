@@ -68,6 +68,7 @@ export interface LoginResponse {
         id: string;
         username: string;
         role: 'admin' | 'member';
+        mustChangePassword: boolean;
         personId: string;
     };
 }
@@ -84,6 +85,16 @@ export async function login(
 
 export async function getMe(): Promise<LoginResponse['user']> {
     return apiFetch<LoginResponse['user']>('/auth/me');
+}
+
+export async function changePassword(
+    currentPassword: string,
+    newPassword: string,
+): Promise<{ message: string }> {
+    return apiFetch<{ message: string }>('/auth/change-password', {
+        method: 'PUT',
+        body: JSON.stringify({ currentPassword, newPassword }),
+    });
 }
 
 /* ------------------------------------------------------------------ */

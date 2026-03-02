@@ -6,6 +6,7 @@ import { EditPerson } from './components/edit-person';
 import { AddPersonModal } from './components/add-person-modal';
 import { ManageRelationshipsModal } from './components/manage-relationships-modal';
 import { LoginScreen } from './components/login-screen';
+import { ChangePasswordScreen } from './components/change-password-screen';
 import { MobileContainer } from './components/layout/mobile-container';
 import { BottomNav } from './components/layout/bottom-nav';
 import { ProfileScreen } from './components/profile/profile-screen';
@@ -179,6 +180,15 @@ function App() {
 
 	if (!user) {
 		return <LoginScreen onLogin={handleLogin} />;
+	}
+
+	if (user.mustChangePassword) {
+		return (
+			<ChangePasswordScreen
+				forced
+				onComplete={() => setUser({ ...user, mustChangePassword: false })}
+			/>
+		);
 	}
 
 	return (
