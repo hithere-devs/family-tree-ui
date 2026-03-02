@@ -7,7 +7,7 @@ export interface NodePosition {
 }
 
 const H_GAP = 200; // minimum gap between the last person of one unit and the first of the next
-const V_GAP = 220; // vertical center-to-center
+const V_GAP = 300; // vertical center-to-center
 const COUPLE_GAP = 160; // gap between spouses within a couple
 
 /**
@@ -34,22 +34,25 @@ export function computeTreeLayout(
     if (!center) return [];
 
     /* ---- Step 1: assign generations via BFS ---- */
+    /*
+     * Two-phase approach:
+     *   Phase 1 — traverse parent/child edges only so every person lands
+     *             at the generation dictated by their parent-child chain.
+     *   Phase 2 — assign any remaining people (connected only via spouse
+     *             edges) to their spouse's generation.
+     *   Phase 3 — reconcile cross-generation spouse pairs: move the spouse
+     *             with fewer children in the tree to the other's generation
+     *             so they always sit side-by-side.
+     */
 
     const gen = new Map<string, number>();
-    const queue: string[] = [centerId];
+
+    // Phase 1 — parent/child BFS (no spouse hops)
+    const pcQueue: string[] = [centerId];
     gen.set(centerId, 0);
 
-    if (center.spouseIds) {
-        for (const sid of center.spouseIds) {
-            if (people[sid] && !gen.has(sid)) {
-                gen.set(sid, 0);
-                queue.push(sid);
-            }
-        }
-    }
-
-    while (queue.length > 0) {
-        const id = queue.shift()!;
+    while (pcQueue.length > 0) {
+        const id = pcQueue.shift()!;
         const person = people[id];
         if (!person) continue;
         const g = gen.get(id)!;
@@ -57,39 +60,74 @@ export function computeTreeLayout(
         for (const pid of person.parentIds) {
             if (!people[pid] || gen.has(pid)) continue;
             gen.set(pid, g - 1);
-            queue.push(pid);
-            const parent = people[pid];
-            if (parent.spouseIds) {
-                for (const sid of parent.spouseIds) {
-                    if (people[sid] && !gen.has(sid)) {
-                        gen.set(sid, g - 1);
-                        queue.push(sid);
-                    }
-                }
-            }
+            pcQueue.push(pid);
         }
 
         for (const cid of person.childrenIds) {
             if (!people[cid] || gen.has(cid)) continue;
             gen.set(cid, g + 1);
-            queue.push(cid);
-            const child = people[cid];
-            if (child.spouseIds) {
-                for (const sid of child.spouseIds) {
-                    if (people[sid] && !gen.has(sid)) {
-                        gen.set(sid, g + 1);
-                        queue.push(sid);
+            pcQueue.push(cid);
+        }
+    }
+
+    // Phase 2 — spouse assignment for people only reachable via spouse edges
+    const spouseQueue: string[] = [...gen.keys()];
+    while (spouseQueue.length > 0) {
+        const id = spouseQueue.shift()!;
+        const person = people[id];
+        if (!person?.spouseIds) continue;
+        const g = gen.get(id)!;
+
+        for (const sid of person.spouseIds) {
+            if (people[sid] && !gen.has(sid)) {
+                gen.set(sid, g);
+                spouseQueue.push(sid);
+                const subQueue = [sid];
+                while (subQueue.length > 0) {
+                    const subId = subQueue.shift()!;
+                    const subPerson = people[subId];
+                    if (!subPerson) continue;
+                    const sg = gen.get(subId)!;
+                    for (const pid of subPerson.parentIds) {
+                        if (!people[pid] || gen.has(pid)) continue;
+                        gen.set(pid, sg - 1);
+                        subQueue.push(pid);
+                        spouseQueue.push(pid);
+                    }
+                    for (const cid of subPerson.childrenIds) {
+                        if (!people[cid] || gen.has(cid)) continue;
+                        gen.set(cid, sg + 1);
+                        subQueue.push(cid);
+                        spouseQueue.push(cid);
                     }
                 }
             }
         }
+    }
 
-        if (person?.spouseIds) {
-            for (const sid of person.spouseIds) {
-                if (people[sid] && !gen.has(sid)) {
-                    gen.set(sid, g);
-                    queue.push(sid);
-                }
+    // Phase 3 — reconcile cross-generation spouse pairs.
+    // For each pair on different gens, move the spouse with fewer
+    // children in the tree to the other's generation (deeper gen wins
+    // as a tiebreaker so the parent-child bracket just gets longer).
+    const reconciled = new Set<string>();
+    for (const [id, g] of gen) {
+        const person = people[id];
+        if (!person?.spouseIds) continue;
+        for (const sid of person.spouseIds) {
+            const pairKey = [id, sid].sort().join(',');
+            if (reconciled.has(pairKey)) continue;
+            reconciled.add(pairKey);
+            const sg = gen.get(sid);
+            if (sg === undefined || sg === g) continue;
+
+            // Always move the higher (smaller gen number) person DOWN to
+            // the deeper generation. This keeps the parent-child bracket
+            // stretching longer rather than pulling someone up awkwardly.
+            const deeperGen = Math.max(g, sg);
+            if (g < sg) {
+                gen.set(id, deeperGen);
+            } else {
+                gen.set(sid, deeperGen);
             }
         }
     }

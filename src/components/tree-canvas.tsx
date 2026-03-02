@@ -10,10 +10,7 @@ import { PersonNode, NODE_W, NODE_H } from './person-node';
 interface SpouseEdge {
 	key: string;
 	type: 'spouse';
-	x1: number;
-	y1: number;
-	x2: number;
-	y2: number;
+	path: string;
 }
 
 interface ParentChildEdge {
@@ -242,13 +239,11 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 							const p2 = positionMap.get(sid)!;
 							const leftX = Math.min(p1.x, p2.x) + NODE_W / 2;
 							const rightX = Math.max(p1.x, p2.x) - NODE_W / 2;
+							const y = (p1.y + p2.y) / 2; // same row, so avg is fine
 							result.push({
 								key,
 								type: 'spouse',
-								x1: leftX,
-								y1: p1.y,
-								x2: rightX,
-								y2: p2.y,
+								path: `M ${leftX} ${y} L ${rightX} ${y}`,
 							});
 						}
 					}
@@ -281,7 +276,7 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 			family: { parentIds: string[]; childIds: string[] };
 			junctionX: number;
 			parentBottomY: number;
-			childTopY: number;
+			closestChildTopY: number;
 			baseMidY: number;
 			childPositions: { id: string; x: number; y: number }[];
 		}
@@ -306,15 +301,17 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 			if (childPositions.length === 0) continue;
 			childPositions.sort((a, b) => a.x - b.x);
 
-			const childTopY = childPositions[0].y - NODE_H / 2;
-			const baseMidY = (parentBottomY + childTopY) / 2;
+			// Use the closest child to compute midY for the horizontal bar
+			const closestChildTopY =
+				Math.min(...childPositions.map((c) => c.y)) - NODE_H / 2;
+			const baseMidY = (parentBottomY + closestChildTopY) / 2;
 
 			familyGeos.push({
 				familyKey,
 				family,
 				junctionX,
 				parentBottomY,
-				childTopY,
+				closestChildTopY,
 				baseMidY,
 				childPositions,
 			});
@@ -324,7 +321,7 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 		const STAGGER = 14;
 		const rowPairGroups = new Map<string, FamilyGeo[]>();
 		for (const fg of familyGeos) {
-			const rpKey = `${fg.parentBottomY},${fg.childTopY}`;
+			const rpKey = `${fg.parentBottomY},${fg.closestChildTopY}`;
 			if (!rowPairGroups.has(rpKey)) rowPairGroups.set(rpKey, []);
 			rowPairGroups.get(rpKey)!.push(fg);
 		}
@@ -335,7 +332,6 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 				staggerMap.set(group[0].familyKey, 0);
 				continue;
 			}
-			// Sort by junction X to assign stagger predictably
 			group.sort((a, b) => a.junctionX - b.junctionX);
 			for (let i = 0; i < group.length; i++) {
 				const offset = (i - (group.length - 1) / 2) * STAGGER;
@@ -352,10 +348,11 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 
 			if (fg.childPositions.length === 1) {
 				const child = fg.childPositions[0];
+				const childTop = child.y - NODE_H / 2;
 				if (child.x !== fg.junctionX) {
 					path += ` L ${child.x} ${midY}`;
 				}
-				path += ` L ${child.x} ${fg.childTopY}`;
+				path += ` L ${child.x} ${childTop}`;
 			} else {
 				// Horizontal bar spanning from junction to all children
 				const leftX = Math.min(fg.junctionX, fg.childPositions[0].x);
@@ -365,9 +362,10 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 				);
 				path += ` M ${leftX} ${midY} L ${rightX} ${midY}`;
 
-				// Vertical drops to each child
+				// Vertical drops to each child (each may be at different Y)
 				for (const child of fg.childPositions) {
-					path += ` M ${child.x} ${midY} L ${child.x} ${fg.childTopY}`;
+					const childTop = child.y - NODE_H / 2;
+					path += ` M ${child.x} ${midY} L ${child.x} ${childTop}`;
 				}
 			}
 
@@ -379,7 +377,7 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 				childX: fg.childPositions[Math.floor(fg.childPositions.length / 2)].x,
 				parentBottomY: fg.parentBottomY,
 				midY,
-				childTopY: fg.childTopY,
+				childTopY: fg.closestChildTopY,
 				color: DEFAULT_PC_COLOR,
 			});
 		}
@@ -483,12 +481,10 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 				>
 					{edgeData.map((edge) =>
 						edge.type === 'spouse' ? (
-							<line
+							<path
 								key={edge.key}
-								x1={edge.x1}
-								y1={edge.y1}
-								x2={edge.x2}
-								y2={edge.y2}
+								d={edge.path}
+								fill='none'
 								stroke='#a5b4fc'
 								strokeWidth={2}
 								strokeDasharray='6 3'

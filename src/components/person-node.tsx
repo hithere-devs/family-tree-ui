@@ -174,18 +174,18 @@ export function PersonNode({
 
 			{/* Name Label */}
 			<div
-				className={`flex flex-col items-center rounded-md px-1.5 py-0.5 transition-colors ${
+				className={`flex flex-col items-center rounded-md px-1.5 py-0.5 text-center transition-colors ${
 					showActions ? 'bg-gray-900/80' : ''
 				}`}
 			>
 				<span
-					className={`text-sm font-semibold ${showActions ? 'text-white' : 'text-gray-700'}`}
+					className={`text-center text-sm font-semibold ${showActions ? 'text-white' : 'text-gray-700'}`}
 				>
 					{label}
 				</span>
 				{person.lastName && (
 					<span
-						className={`text-[10px] ${showActions ? 'text-gray-300' : 'text-gray-400'}`}
+						className={`text-center text-[10px] ${showActions ? 'text-gray-300' : 'text-gray-400'}`}
 					>
 						{person.lastName}
 					</span>
