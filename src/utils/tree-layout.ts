@@ -162,16 +162,6 @@ function layoutRow(
         return xs.length > 0 ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
     };
 
-    const avgParentX = (id: string) => {
-        const p = people[id];
-        return p ? avgXOf(id, p.parentIds) : null;
-    };
-
-    const avgChildX = (id: string) => {
-        const p = people[id];
-        return p ? avgXOf(id, p.childrenIds) : null;
-    };
-
     const avgRelX = (id: string) => {
         const p = people[id];
         return p ? avgXOf(id, [...p.parentIds, ...p.childrenIds]) : null;
