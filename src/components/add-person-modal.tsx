@@ -168,12 +168,12 @@ export function AddPersonModal() {
 	const canSubmit =
 		firstName.trim().length > 0 && (isContextual || Boolean(relativePersonId));
 
-	// If adding a child and relative has a spouse, we will auto-link in background
+	// If adding a child and relative has exactly one spouse, we will auto-link in background
 	const autoSecondParent =
 		isContextual &&
 		addPersonModal.relationType === 'child' &&
-		relative?.spouseId
-			? state.people[relative.spouseId]
+		relative?.spouseIds?.length === 1
+			? state.people[relative.spouseIds[0]]
 			: null;
 
 	async function handleSave() {
@@ -225,7 +225,8 @@ export function AddPersonModal() {
 				// Silent background: auto-link spouse as second parent when adding a child
 				if (targRelationType === 'child') {
 					const rel = state.people[targRelativeId];
-					const spouseId = rel?.spouseId;
+					const spouseId =
+						rel?.spouseIds?.length === 1 ? rel.spouseIds[0] : null;
 					if (spouseId) {
 						await api
 							.addRelationship({

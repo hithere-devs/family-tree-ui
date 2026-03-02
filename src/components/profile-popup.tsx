@@ -107,20 +107,18 @@ export function ProfilePopup() {
 								</button>
 							)}
 
-							{!person.spouseId && (
-								<button
-									onClick={() =>
-										dispatch({
-											type: 'OPEN_ADD_PERSON_MODAL',
-											relativePersonId: person.id,
-											relationType: 'spouse',
-										})
-									}
-									className='w-full py-2 px-4 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors'
-								>
-									+ Add Spouse
-								</button>
-							)}
+							<button
+								onClick={() =>
+									dispatch({
+										type: 'OPEN_ADD_PERSON_MODAL',
+										relativePersonId: person.id,
+										relationType: 'spouse',
+									})
+								}
+								className='w-full py-2 px-4 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors'
+							>
+								+ Add Spouse
+							</button>
 
 							<button
 								onClick={() =>

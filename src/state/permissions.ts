@@ -21,7 +21,7 @@ export function canEdit(
     if (targetPersonId === self.id) return true;
 
     // Can edit spouse
-    if (self.spouseId === targetPersonId) return true;
+    if (self.spouseIds.includes(targetPersonId)) return true;
 
     // Can edit children
     if (self.childrenIds.includes(targetPersonId)) return true;
@@ -47,7 +47,7 @@ export function getRelationshipLabel(
         return 'Child';
     }
 
-    if (relativeTo.spouseId === person.id) return 'Spouse';
+    if (relativeTo.spouseIds.includes(person.id)) return 'Spouse';
 
     if (
         person.parentIds.length > 0 &&

@@ -39,9 +39,13 @@ export function computeTreeLayout(
     const queue: string[] = [centerId];
     gen.set(centerId, 0);
 
-    if (center.spouseId && people[center.spouseId]) {
-        gen.set(center.spouseId, 0);
-        queue.push(center.spouseId);
+    if (center.spouseIds) {
+        for (const sid of center.spouseIds) {
+            if (people[sid] && !gen.has(sid)) {
+                gen.set(sid, 0);
+                queue.push(sid);
+            }
+        }
     }
 
     while (queue.length > 0) {
@@ -55,9 +59,13 @@ export function computeTreeLayout(
             gen.set(pid, g - 1);
             queue.push(pid);
             const parent = people[pid];
-            if (parent.spouseId && people[parent.spouseId] && !gen.has(parent.spouseId)) {
-                gen.set(parent.spouseId, g - 1);
-                queue.push(parent.spouseId);
+            if (parent.spouseIds) {
+                for (const sid of parent.spouseIds) {
+                    if (people[sid] && !gen.has(sid)) {
+                        gen.set(sid, g - 1);
+                        queue.push(sid);
+                    }
+                }
             }
         }
 
@@ -66,15 +74,23 @@ export function computeTreeLayout(
             gen.set(cid, g + 1);
             queue.push(cid);
             const child = people[cid];
-            if (child.spouseId && people[child.spouseId] && !gen.has(child.spouseId)) {
-                gen.set(child.spouseId, g + 1);
-                queue.push(child.spouseId);
+            if (child.spouseIds) {
+                for (const sid of child.spouseIds) {
+                    if (people[sid] && !gen.has(sid)) {
+                        gen.set(sid, g + 1);
+                        queue.push(sid);
+                    }
+                }
             }
         }
 
-        if (person.spouseId && people[person.spouseId] && !gen.has(person.spouseId)) {
-            gen.set(person.spouseId, g);
-            queue.push(person.spouseId);
+        if (person?.spouseIds) {
+            for (const sid of person.spouseIds) {
+                if (people[sid] && !gen.has(sid)) {
+                    gen.set(sid, g);
+                    queue.push(sid);
+                }
+            }
         }
     }
 
@@ -161,7 +177,7 @@ function layoutRow(
         return p ? avgXOf(id, [...p.parentIds, ...p.childrenIds]) : null;
     };
 
-    /* ---- build spouse-pair units ---- */
+    /* ---- build spouse-cluster units ---- */
 
     const placed = new Set<string>();
     const units: string[][] = [];
@@ -169,45 +185,74 @@ function layoutRow(
     for (const id of ids) {
         if (placed.has(id)) continue;
         placed.add(id);
-        const person = people[id];
 
-        if (
-            person?.spouseId &&
-            ids.includes(person.spouseId) &&
-            !placed.has(person.spouseId)
-        ) {
-            placed.add(person.spouseId);
-            const sid = person.spouseId;
-
-            /* Choose left/right within couple:
-               prefer parent-based → child-based → any-relative → gender */
-            const pxA = avgParentX(id);
-            const pxB = avgParentX(sid);
-
-            if (pxA !== null && pxB !== null) {
-                units.push(pxA <= pxB ? [id, sid] : [sid, id]);
-            } else {
-                const cxA = avgChildX(id);
-                const cxB = avgChildX(sid);
-                if (cxA !== null && cxB !== null) {
-                    units.push(cxA <= cxB ? [id, sid] : [sid, id]);
-                } else {
-                    const rxA = avgRelX(id);
-                    const rxB = avgRelX(sid);
-                    if (rxA !== null && rxB !== null && rxA !== rxB) {
-                        units.push(rxA <= rxB ? [id, sid] : [sid, id]);
-                    } else {
-                        // Gender fallback (deterministic)
-                        if (person.gender <= (people[sid]?.gender ?? '')) {
-                            units.push([id, sid]);
-                        } else {
-                            units.push([sid, id]);
-                        }
+        // Transitively collect all spouse-connected people in this row
+        const cluster = new Set<string>([id]);
+        const spouseQueue = [id];
+        while (spouseQueue.length > 0) {
+            const curr = spouseQueue.shift()!;
+            const p = people[curr];
+            if (p?.spouseIds) {
+                for (const sid of p.spouseIds) {
+                    if (ids.includes(sid) && !cluster.has(sid)) {
+                        cluster.add(sid);
+                        placed.add(sid);
+                        spouseQueue.push(sid);
                     }
                 }
             }
+        }
+
+        const members = [...cluster];
+
+        if (members.length === 1) {
+            units.push(members);
+        } else if (members.length === 2) {
+            // Simple pair — choose left/right by positional hints then gender
+            const [a, b] = members;
+            const rxA = avgRelX(a);
+            const rxB = avgRelX(b);
+            if (rxA !== null && rxB !== null && rxA !== rxB) {
+                units.push(rxA <= rxB ? [a, b] : [b, a]);
+            } else {
+                // Gender fallback (deterministic)
+                if ((people[a]?.gender ?? '') <= (people[b]?.gender ?? '')) {
+                    units.push([a, b]);
+                } else {
+                    units.push([b, a]);
+                }
+            }
         } else {
-            units.push([id]);
+            // 3+ members — find the hub (person with the most spouse
+            // connections within the cluster) and center them
+            let hubId = members[0];
+            let maxConn = 0;
+            for (const uid of members) {
+                const conn = people[uid]?.spouseIds?.filter(
+                    (sid) => cluster.has(sid),
+                ).length ?? 0;
+                if (conn > maxConn) {
+                    maxConn = conn;
+                    hubId = uid;
+                }
+            }
+
+            const spouses = members.filter((uid) => uid !== hubId);
+            // Sort spouses by positional hints, then gender
+            spouses.sort((a, b) => {
+                const rxA = avgRelX(a);
+                const rxB = avgRelX(b);
+                if (rxA !== null && rxB !== null && rxA !== rxB) return rxA - rxB;
+                return (people[a]?.gender ?? '').localeCompare(
+                    people[b]?.gender ?? '',
+                );
+            });
+
+            // Split spouses: half on left, half on right, hub in center
+            const leftCount = Math.floor(spouses.length / 2);
+            const left = spouses.slice(0, leftCount);
+            const right = spouses.slice(leftCount);
+            units.push([...left, hubId, ...right]);
         }
     }
 

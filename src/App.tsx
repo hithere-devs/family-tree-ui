@@ -97,7 +97,20 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
 
 	return (
 		<MobileContainer>
-			<div className='relative flex h-full flex-col'>
+			<div className='relative flex h-full flex-col md:flex-row'>
+				{/* Desktop sidebar (left) */}
+				<div className='hidden md:flex z-20 shrink-0'>
+					<BottomNav
+						activeView={activeView}
+						onViewChange={(v) => {
+							if (v === 'tree') {
+								dispatch({ type: 'SELECT_PERSON', personId: null });
+							}
+							setActiveView(v);
+						}}
+					/>
+				</div>
+
 				{/* View Content */}
 				<div className='flex-1 overflow-hidden relative'>
 					{/* Always keep tree mounted to preserve position, just hide it if not active */}
@@ -117,18 +130,17 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
 
 				{/* Undo indicator */}
 				{state.undoStack.length > 0 && (
-					<div className='absolute bottom-24 right-4 z-10 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-500 shadow-md'>
+					<div className='absolute bottom-24 right-4 md:bottom-4 z-10 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-500 shadow-md'>
 						⌘Z to undo: {state.undoStack[state.undoStack.length - 1].label}
 					</div>
 				)}
 
-				{/* Bottom Navigation */}
-				<div className='z-20 shrink-0'>
+				{/* Mobile bottom navigation */}
+				<div className='z-20 shrink-0 md:hidden'>
 					<BottomNav
 						activeView={activeView}
 						onViewChange={(v) => {
 							if (v === 'tree') {
-								// Deselect person when going back to tree so we don't auto-jump back to profile
 								dispatch({ type: 'SELECT_PERSON', personId: null });
 							}
 							setActiveView(v);

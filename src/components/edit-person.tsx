@@ -78,14 +78,14 @@ export function EditPerson() {
 		}
 	}
 
-	async function handleRemoveSpouse() {
-		if (!person || !person.spouseId) return;
+	async function handleRemoveSpouse(spouseIdToRemove: string) {
+		if (!person) return;
 		setError('');
 		try {
 			const rels = await api.getRelationshipsForPerson(person.id);
 			const rel = rels.find(
 				(r) =>
-					r.target_person_id === person.spouseId &&
+					r.target_person_id === spouseIdToRemove &&
 					r.relationship_type === 'SPOUSE',
 			);
 			if (rel) {
@@ -344,53 +344,62 @@ export function EditPerson() {
 						</div>
 					</div>
 
-					{/* Spouse */}
+					{/* Spouses */}
 					<div className='rounded-xl bg-white p-4 shadow-sm'>
 						<h3 className='mb-3 text-sm font-bold text-gray-500 uppercase tracking-wide'>
-							Spouse
+							Spouses
 						</h3>
 						<div className='space-y-2'>
-							{person.spouseId ? (
-								<div className='flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2'>
-									<span className='text-sm text-gray-700'>
-										{state.people[person.spouseId]
-											? `${state.people[person.spouseId].firstName} ${state.people[person.spouseId].lastName}`
-											: person.spouseId}
-									</span>
-									<button
-										type='button'
-										onClick={handleRemoveSpouse}
-										className='text-xs font-medium text-red-400 hover:text-red-600'
+							{person.spouseIds.map((sid) => {
+								const spouse = state.people[sid];
+								return (
+									<div
+										key={sid}
+										className='flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2'
 									>
-										✕ Remove
-									</button>
-								</div>
-							) : (
-								<div className='flex gap-2'>
-									<select
-										value={addSpouseId}
-										onChange={(e) => setAddSpouseId(e.target.value)}
-										className='flex-1 appearance-none rounded-xl border border-transparent bg-gray-50 px-3 py-2 text-sm text-gray-800 focus:border-lime-500 focus:ring-2 focus:ring-lime-200'
-									>
-										<option value=''>Select a spouse…</option>
-										{Object.values(state.people)
-											.filter((p) => p.id !== person.id && !p.spouseId)
-											.map((p) => (
-												<option key={p.id} value={p.id}>
-													{p.firstName} {p.lastName}
-												</option>
-											))}
-									</select>
-									<button
-										type='button'
-										onClick={handleAddSpouse}
-										disabled={!addSpouseId}
-										className='rounded-xl bg-lime-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-lime-200 hover:bg-lime-600 disabled:cursor-not-allowed disabled:opacity-50'
-									>
-										+ Add
-									</button>
-								</div>
+										<span className='text-sm text-gray-700'>
+											{spouse ? `${spouse.firstName} ${spouse.lastName}` : sid}
+										</span>
+										<button
+											type='button'
+											onClick={() => handleRemoveSpouse(sid)}
+											className='text-xs font-medium text-red-400 hover:text-red-600'
+										>
+											✕ Remove
+										</button>
+									</div>
+								);
+							})}
+							{person.spouseIds.length === 0 && (
+								<p className='text-sm text-gray-400'>No spouses</p>
 							)}
+							<div className='mt-1 flex gap-2'>
+								<select
+									value={addSpouseId}
+									onChange={(e) => setAddSpouseId(e.target.value)}
+									className='flex-1 appearance-none rounded-xl border border-transparent bg-gray-50 px-3 py-2 text-sm text-gray-800 focus:border-lime-500 focus:ring-2 focus:ring-lime-200'
+								>
+									<option value=''>Add a spouse…</option>
+									{Object.values(state.people)
+										.filter(
+											(p) =>
+												p.id !== person.id && !person.spouseIds.includes(p.id),
+										)
+										.map((p) => (
+											<option key={p.id} value={p.id}>
+												{p.firstName} {p.lastName}
+											</option>
+										))}
+								</select>
+								<button
+									type='button'
+									onClick={handleAddSpouse}
+									disabled={!addSpouseId}
+									className='rounded-xl bg-lime-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-lime-200 hover:bg-lime-600 disabled:cursor-not-allowed disabled:opacity-50'
+								>
+									+ Add
+								</button>
+							</div>
 						</div>
 					</div>
 

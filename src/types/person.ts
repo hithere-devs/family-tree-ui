@@ -7,7 +7,7 @@ export interface Person {
     gender: Gender;
     isDeceased: boolean;
     parentIds: string[];
-    spouseId: string | null;
+    spouseIds: string[];
     childrenIds: string[];
     birthDate?: string | null;
     bio?: string | null;

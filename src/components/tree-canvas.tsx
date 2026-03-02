@@ -232,26 +232,26 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 
 		for (const person of Object.values(state.people)) {
 			/* spouse edges */
-			if (
-				person.spouseId &&
-				positionMap.has(person.id) &&
-				positionMap.has(person.spouseId)
-			) {
-				const key = [person.id, person.spouseId].sort().join('-');
-				if (!drawnSpouses.has(key)) {
-					drawnSpouses.add(key);
-					const p1 = positionMap.get(person.id)!;
-					const p2 = positionMap.get(person.spouseId)!;
-					const leftX = Math.min(p1.x, p2.x) + NODE_W / 2;
-					const rightX = Math.max(p1.x, p2.x) - NODE_W / 2;
-					result.push({
-						key,
-						type: 'spouse',
-						x1: leftX,
-						y1: p1.y,
-						x2: rightX,
-						y2: p2.y,
-					});
+			if (person.spouseIds && person.spouseIds.length > 0) {
+				for (const sid of person.spouseIds) {
+					if (positionMap.has(person.id) && positionMap.has(sid)) {
+						const key = [person.id, sid].sort().join('-');
+						if (!drawnSpouses.has(key)) {
+							drawnSpouses.add(key);
+							const p1 = positionMap.get(person.id)!;
+							const p2 = positionMap.get(sid)!;
+							const leftX = Math.min(p1.x, p2.x) + NODE_W / 2;
+							const rightX = Math.max(p1.x, p2.x) - NODE_W / 2;
+							result.push({
+								key,
+								type: 'spouse',
+								x1: leftX,
+								y1: p1.y,
+								x2: rightX,
+								y2: p2.y,
+							});
+						}
+					}
 				}
 			}
 

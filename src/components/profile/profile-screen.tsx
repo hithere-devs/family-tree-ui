@@ -214,20 +214,18 @@ export const ProfileScreen = () => {
 								</button>
 							)}
 
-							{!person.spouseId && (
-								<button
-									onClick={() =>
-										dispatch({
-											type: 'OPEN_ADD_PERSON_MODAL',
-											relativePersonId: person.id,
-											relationType: 'spouse',
-										})
-									}
-									className='flex items-center justify-center gap-2 rounded-xl bg-gray-50 py-2.5 text-xs font-medium text-gray-700 hover:bg-gray-100 border border-gray-200 shadow-sm'
-								>
-									<UserPlus size={14} className='text-gray-500' /> Add Spouse
-								</button>
-							)}
+							<button
+								onClick={() =>
+									dispatch({
+										type: 'OPEN_ADD_PERSON_MODAL',
+										relativePersonId: person.id,
+										relationType: 'spouse',
+									})
+								}
+								className='flex items-center justify-center gap-2 rounded-xl bg-gray-50 py-2.5 text-xs font-medium text-gray-700 hover:bg-gray-100 border border-gray-200 shadow-sm'
+							>
+								<UserPlus size={14} className='text-gray-500' /> Add Spouse
+							</button>
 
 							<button
 								onClick={() =>

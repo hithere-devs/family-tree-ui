@@ -35,9 +35,11 @@ export function getRelationship(
             queue.push({ id: cId, path: [...path, 'child'] });
         });
 
-        // Go to spouse
-        if (current.spouseId) {
-            queue.push({ id: current.spouseId, path: [...path, 'spouse'] });
+        // Go to spouses
+        if (current.spouseIds) {
+            for (const sid of current.spouseIds) {
+                queue.push({ id: sid, path: [...path, 'spouse'] });
+            }
         }
     }
 
