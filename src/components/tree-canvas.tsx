@@ -1,8 +1,9 @@
 import { useRef, useState, useEffect, useMemo } from 'react';
-import { RefreshCw, LocateFixed } from 'lucide-react';
+import { RefreshCw, LocateFixed, Search } from 'lucide-react';
 import { useFamilyTree } from '../state/family-tree-context';
 import { computeTreeLayout } from '../utils/tree-layout';
 import { PersonNode, NODE_W, NODE_H } from './person-node';
+import { getAvatarUrl } from '../utils/avatar';
 
 /* ------------------------------------------------------------------ */
 /*  Edge data types (pure data, no JSX in the memo)                    */
@@ -117,6 +118,37 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 	const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 	const [dragStartOffset, setDragStartOffset] = useState({ x: 0, y: 0 });
 	const [wasDragged, setWasDragged] = useState(false);
+
+	/* ---- search state ---- */
+	const [isSearchOpen, setIsSearchOpen] = useState(false);
+	const [searchQuery, setSearchQuery] = useState('');
+	const searchInputRef = useRef<HTMLInputElement>(null);
+
+	const searchResults = useMemo(() => {
+		if (!searchQuery.trim()) return [];
+		const q = searchQuery.toLowerCase();
+		return Object.values(state.people)
+			.filter(
+				(p) =>
+					p.firstName.toLowerCase().includes(q) ||
+					(p.lastName && p.lastName.toLowerCase().includes(q)),
+			)
+			.slice(0, 8);
+	}, [searchQuery, state.people]);
+
+	function jumpToPerson(personId: string) {
+		const pos = positionMap.get(personId);
+		if (pos && containerRef.current) {
+			const { width, height } = containerRef.current.getBoundingClientRect();
+			setOffset({
+				x: width / 2 - pos.x * zoom,
+				y: height / 2 - pos.y * zoom,
+			});
+			dispatch({ type: 'SELECT_PERSON', personId });
+			setIsSearchOpen(false);
+			setSearchQuery('');
+		}
+	}
 
 	/* refs so the native wheel / touch handlers always see latest values */
 	const stateRef = useRef({ zoom, offset });
@@ -609,8 +641,63 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 			onTouchCancel={handlePointerUp}
 			onClick={handleBackgroundClick}
 		>
-			{/* Reset & Refresh buttons */}
+			{/* Controls: Search, Refresh, Reset */}
 			<div className='absolute top-4 right-4 z-10 flex gap-2'>
+				<div className='relative flex items-center h-8'>
+					{isSearchOpen ? (
+						<div className='flex items-center bg-white/90 backdrop-blur-sm rounded-full border border-gray-200 shadow-sm px-2 h-full'>
+							<Search size={14} className='text-gray-400 ml-1 shrink-0' />
+							<input
+								ref={searchInputRef}
+								type='text'
+								value={searchQuery}
+								onChange={(e) => setSearchQuery(e.target.value)}
+								placeholder='Find someone...'
+								autoFocus
+								onBlur={() => setTimeout(() => setIsSearchOpen(false), 200)}
+								className='bg-transparent border-none focus:ring-0 text-sm py-1 px-2 w-35 sm:w-48 outline-none'
+							/>
+						</div>
+					) : (
+						<button
+							onClick={(e) => {
+								e.stopPropagation();
+								setIsSearchOpen(true);
+							}}
+							className='bg-white/90 backdrop-blur-sm px-3 h-full rounded-full shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-indigo-600 transition-colors border border-gray-200 flex items-center gap-1.5'
+						>
+							<Search size={14} /> Search
+						</button>
+					)}
+
+					{/* Search Results */}
+					{isSearchOpen && searchResults.length > 0 && (
+						<div className='absolute top-full mt-2 right-0 w-64 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden py-1 z-50'>
+							{searchResults.map((p) => (
+								<button
+									key={p.id}
+									onClick={(e) => {
+										e.stopPropagation();
+										jumpToPerson(p.id);
+									}}
+									className='w-full text-left px-4 py-2 hover:bg-lime-50 focus:bg-lime-50 transition-colors text-sm flex items-center gap-3'
+								>
+									<img
+										src={getAvatarUrl(p)}
+										className='h-8 w-8 rounded-full object-cover border border-gray-100 shrink-0'
+										alt=''
+									/>
+									<div className='truncate'>
+										<div className='font-semibold text-gray-800 truncate'>
+											{p.firstName} {p.lastName}
+										</div>
+									</div>
+								</button>
+							))}
+						</div>
+					)}
+				</div>
+
 				<button
 					onClick={(e) => {
 						e.stopPropagation();

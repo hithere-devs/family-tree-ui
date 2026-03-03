@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useFamilyTree } from '../state/family-tree-context';
 import type { Gender } from '../types';
 import * as api from '../services/api-client';
+import { PersonCombobox } from './person-combobox';
 
 export function EditPerson() {
 	const { state, dispatch, refreshTree } = useFamilyTree();
@@ -313,24 +314,19 @@ export function EditPerson() {
 							)}
 							{person.parentIds.length < 2 && (
 								<div className='mt-1 flex gap-2'>
-									<select
-										value={addParentId}
-										onChange={(e) => setAddParentId(e.target.value)}
-										className='flex-1 appearance-none rounded-xl border border-transparent bg-gray-50 px-3 py-2 text-sm text-gray-800 focus:border-lime-500 focus:ring-2 focus:ring-lime-200'
-									>
-										<option value=''>Add a parent…</option>
-										{Object.values(state.people)
-											.filter(
+									<div className='flex-1'>
+										<PersonCombobox
+											people={Object.values(state.people).filter(
 												(p) =>
 													p.id !== person.id &&
 													!person.parentIds.includes(p.id),
-											)
-											.map((p) => (
-												<option key={p.id} value={p.id}>
-													{p.firstName} {p.lastName}
-												</option>
-											))}
-									</select>
+											)}
+											value={addParentId}
+											onChange={setAddParentId}
+											placeholder='Add a parent...'
+											className='w-full appearance-none rounded-xl border border-transparent bg-gray-50 px-3 py-2 text-sm text-gray-800 focus:border-lime-500 focus:ring-2 focus:ring-lime-200'
+										/>
+									</div>
 									<button
 										type='button'
 										onClick={handleAddParent}
@@ -374,23 +370,18 @@ export function EditPerson() {
 								<p className='text-sm text-gray-400'>No spouses</p>
 							)}
 							<div className='mt-1 flex gap-2'>
-								<select
-									value={addSpouseId}
-									onChange={(e) => setAddSpouseId(e.target.value)}
-									className='flex-1 appearance-none rounded-xl border border-transparent bg-gray-50 px-3 py-2 text-sm text-gray-800 focus:border-lime-500 focus:ring-2 focus:ring-lime-200'
-								>
-									<option value=''>Add a spouse…</option>
-									{Object.values(state.people)
-										.filter(
+								<div className='flex-1'>
+									<PersonCombobox
+										people={Object.values(state.people).filter(
 											(p) =>
 												p.id !== person.id && !person.spouseIds.includes(p.id),
-										)
-										.map((p) => (
-											<option key={p.id} value={p.id}>
-												{p.firstName} {p.lastName}
-											</option>
-										))}
-								</select>
+										)}
+										value={addSpouseId}
+										onChange={setAddSpouseId}
+										placeholder='Add a spouse...'
+										className='w-full appearance-none rounded-xl border border-transparent bg-gray-50 px-3 py-2 text-sm text-gray-800 focus:border-lime-500 focus:ring-2 focus:ring-lime-200'
+									/>
+								</div>
 								<button
 									type='button'
 									onClick={handleAddSpouse}

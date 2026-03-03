@@ -3,6 +3,7 @@ import { useFamilyTree } from '../state/family-tree-context';
 import { getAvatarUrl } from '../utils/avatar';
 import type { Gender } from '../types';
 import * as api from '../services/api-client';
+import { PersonCombobox } from './person-combobox';
 
 /* ------------------------------------------------------------------ */
 /*  Smart default helpers (all silent — never shown to user)           */
@@ -355,18 +356,11 @@ export function AddPersonModal() {
 									<label className='mb-1.5 block text-sm font-semibold text-gray-700'>
 										Relative To
 									</label>
-									<select
+									<PersonCombobox
+										people={Object.values(state.people)}
 										value={relativePersonId}
-										onChange={(e) => setRelativePersonId(e.target.value)}
-										className='w-full appearance-none rounded-xl border-transparent bg-gray-50 px-4 py-3 text-gray-800 focus:border-lime-500 focus:bg-white focus:ring-2 focus:ring-lime-200'
-									>
-										<option value=''>Select a person…</option>
-										{Object.values(state.people).map((p) => (
-											<option key={p.id} value={p.id}>
-												{p.firstName} {p.lastName}
-											</option>
-										))}
-									</select>
+										onChange={setRelativePersonId}
+									/>
 								</div>
 								<div>
 									<label className='mb-1.5 block text-sm font-semibold text-gray-700'>

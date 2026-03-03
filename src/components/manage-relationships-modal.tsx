@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useFamilyTree } from '../state/family-tree-context';
 import * as api from '../services/api-client';
+import { PersonCombobox } from './person-combobox';
 
 export function ManageRelationshipsModal() {
 	const { state, dispatch, refreshTree } = useFamilyTree();
@@ -205,18 +206,12 @@ export function ManageRelationshipsModal() {
 							<label className='block text-sm font-semibold text-gray-700 mb-1.5'>
 								Target Person
 							</label>
-							<select
+							<PersonCombobox
+								people={otherPeople}
 								value={targetPersonId}
-								onChange={(e) => setTargetPersonId(e.target.value)}
-								className='w-full px-4 py-3.5 bg-gray-50 border-transparent focus:bg-white focus:border-lime-500 focus:ring-2 focus:ring-lime-200 rounded-xl text-gray-800 transition-colors appearance-none'
-							>
-								<option value=''>Select a person…</option>
-								{otherPeople.map((p) => (
-									<option key={p.id} value={p.id}>
-										{p.firstName} {p.lastName}
-									</option>
-								))}
-							</select>
+								onChange={setTargetPersonId}
+								placeholder='Select a person...'
+							/>
 						</div>
 
 						<div>
