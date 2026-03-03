@@ -159,24 +159,26 @@ export function EditPerson() {
 					<div className='grid grid-cols-2 gap-3'>
 						<div>
 							<label className='mb-1.5 block text-sm font-semibold text-gray-700'>
-								First Name
+								Name
 							</label>
 							<input
 								type='text'
 								value={firstName}
 								onChange={(e) => setFirstName(e.target.value)}
 								className='w-full rounded-xl border border-transparent bg-white px-4 py-3 text-gray-800 shadow-sm transition-colors focus:border-lime-500 focus:ring-2 focus:ring-lime-200'
+								placeholder='Name'
 							/>
 						</div>
 						<div>
 							<label className='mb-1.5 block text-sm font-semibold text-gray-700'>
-								Last Name
+								Nickname
 							</label>
 							<input
 								type='text'
 								value={lastName}
 								onChange={(e) => setLastName(e.target.value)}
 								className='w-full rounded-xl border border-transparent bg-white px-4 py-3 text-gray-800 shadow-sm transition-colors focus:border-lime-500 focus:ring-2 focus:ring-lime-200'
+								placeholder='Nickname'
 							/>
 						</div>
 					</div>

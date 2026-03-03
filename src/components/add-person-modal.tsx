@@ -394,7 +394,7 @@ export function AddPersonModal() {
 						<div className='grid grid-cols-2 gap-3'>
 							<div>
 								<label className='mb-1.5 block text-sm font-semibold text-gray-700'>
-									First Name
+									Name
 								</label>
 								<input
 									ref={firstNameRef}
@@ -404,19 +404,19 @@ export function AddPersonModal() {
 									onKeyDown={(e) =>
 										e.key === 'Enter' && canSubmit && handleSave()
 									}
-									placeholder='First'
+									placeholder='Name'
 									className='w-full rounded-xl border border-transparent bg-gray-50 px-4 py-3 text-gray-800 transition-colors focus:border-lime-500 focus:bg-white focus:ring-2 focus:ring-lime-200'
 								/>
 							</div>
 							<div>
 								<label className='mb-1.5 block text-sm font-semibold text-gray-700'>
-									Last Name
+									Nickname
 								</label>
 								<input
 									type='text'
 									value={lastName}
 									onChange={(e) => setLastName(e.target.value)}
-									placeholder='Last'
+									placeholder='Nickname'
 									className='w-full rounded-xl border border-transparent bg-gray-50 px-4 py-3 text-gray-800 transition-colors focus:border-lime-500 focus:bg-white focus:ring-2 focus:ring-lime-200'
 								/>
 							</div>
