@@ -41,6 +41,12 @@ export function getRelationship(
                 queue.push({ id: sid, path: [...path, 'spouse'] });
             }
         }
+        // Go to ex-spouses
+        if (current.exSpouseIds) {
+            for (const sid of current.exSpouseIds) {
+                queue.push({ id: sid, path: [...path, 'ex-spouse'] });
+            }
+        }
     }
 
     return 'Relative';

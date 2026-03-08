@@ -6,4 +6,6 @@ export interface User {
     personId: string;
     role: UserRole;
     mustChangePassword: boolean;
+    phoneNumber?: string | null;
+    phoneVerified?: boolean;
 }

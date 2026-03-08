@@ -1,5 +1,13 @@
 export type Gender = 'male' | 'female' | 'other';
 
+export type SocialLinkType = 'facebook' | 'instagram' | 'twitter' | 'linkedin';
+
+export interface SocialLink {
+    type: SocialLinkType;
+    url: string;
+    handle: string;
+}
+
 export interface Person {
     id: string;
     firstName: string;
@@ -8,14 +16,16 @@ export interface Person {
     isDeceased: boolean;
     parentIds: string[];
     spouseIds: string[];
+    exSpouseIds: string[];
     childrenIds: string[];
     birthDate?: string | null;
+    deathYear?: number | null;
     bio?: string | null;
     phoneNumber?: string | null;
-    socialLinks?: { type: string; url: string; handle: string; }[] | null;
+    socialLinks?: SocialLink[] | null;
+    phoneVerified?: boolean;
     location?: string | null;
     birthYear?: number;
-    deathYear?: number;
     createdBy: string;
     updatedBy: string;
 }

@@ -1,8 +1,53 @@
 import { useState } from 'react';
 import { useFamilyTree } from '../state/family-tree-context';
-import type { Gender } from '../types';
+import type { Gender, SocialLink, SocialLinkType } from '../types';
 import * as api from '../services/api-client';
 import { PersonCombobox } from './person-combobox';
+import { MonthDayInput } from './month-day-input';
+import { PhoneNumberField } from './phone-number-field';
+import {
+	Facebook,
+	Instagram,
+	Twitter,
+	Linkedin,
+	Plus,
+	Trash2,
+	Phone,
+	ShieldCheck,
+	ShieldAlert,
+} from 'lucide-react';
+
+const SOCIAL_PLATFORMS: {
+	type: SocialLinkType;
+	label: string;
+	icon: typeof Facebook;
+	placeholder: string;
+}[] = [
+	{
+		type: 'facebook',
+		label: 'Facebook',
+		icon: Facebook,
+		placeholder: 'https://facebook.com/username',
+	},
+	{
+		type: 'instagram',
+		label: 'Instagram',
+		icon: Instagram,
+		placeholder: 'https://instagram.com/username',
+	},
+	{
+		type: 'twitter',
+		label: 'Twitter / X',
+		icon: Twitter,
+		placeholder: 'https://x.com/username',
+	},
+	{
+		type: 'linkedin',
+		label: 'LinkedIn',
+		icon: Linkedin,
+		placeholder: 'https://linkedin.com/in/username',
+	},
+];
 
 export function EditPerson() {
 	const { state, dispatch, refreshTree } = useFamilyTree();
@@ -21,12 +66,45 @@ export function EditPerson() {
 	const [deathYear, setDeathYear] = useState(
 		person?.deathYear?.toString() ?? '',
 	);
+	const [phoneNumber, setPhoneNumber] = useState(person?.phoneNumber ?? '');
+	const [socialLinks, setSocialLinks] = useState<SocialLink[]>(
+		person?.socialLinks ?? [],
+	);
 	const [addParentId, setAddParentId] = useState('');
 	const [addSpouseId, setAddSpouseId] = useState('');
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState('');
 
+	const isSelf = state.currentUser?.personId === person?.id;
+
 	if (!person) return null;
+
+	/* ------------------------------------------------------------------ */
+	/*  Social links helpers                                               */
+	/* ------------------------------------------------------------------ */
+
+	const usedPlatforms = new Set(socialLinks.map((l) => l.type));
+	const availablePlatforms = SOCIAL_PLATFORMS.filter(
+		(p) => !usedPlatforms.has(p.type),
+	);
+
+	function addSocialLink(type: SocialLinkType) {
+		setSocialLinks((prev) => [...prev, { type, url: '', handle: '' }]);
+	}
+
+	function updateSocialLink(
+		index: number,
+		field: 'url' | 'handle',
+		value: string,
+	) {
+		setSocialLinks((prev) =>
+			prev.map((link, i) => (i === index ? { ...link, [field]: value } : link)),
+		);
+	}
+
+	function removeSocialLink(index: number) {
+		setSocialLinks((prev) => prev.filter((_, i) => i !== index));
+	}
 
 	async function handleAddParent() {
 		if (!person || !addParentId) return;
@@ -98,12 +176,46 @@ export function EditPerson() {
 		}
 	}
 
+	async function handleDivorceSpouse(spouseId: string) {
+		if (!person) return;
+		setError('');
+		try {
+			await api.updateRelationshipStatus({
+				sourcePersonId: person.id,
+				targetPersonId: spouseId,
+				status: 'divorced',
+			});
+			await refreshTree();
+		} catch (err) {
+			setError(err instanceof Error ? err.message : 'Failed to update status');
+		}
+	}
+
+	async function handleReconcileSpouse(spouseId: string) {
+		if (!person) return;
+		setError('');
+		try {
+			await api.updateRelationshipStatus({
+				sourcePersonId: person.id,
+				targetPersonId: spouseId,
+				status: 'confirmed',
+			});
+			await refreshTree();
+		} catch (err) {
+			setError(err instanceof Error ? err.message : 'Failed to update status');
+		}
+	}
+
 	async function handleSave() {
 		if (!person) return;
 		setSaving(true);
 		setError('');
 
 		try {
+			const filteredLinks = socialLinks.filter(
+				(l) => l.url.trim() || l.handle.trim(),
+			);
+
 			await api.updatePerson(person.id, {
 				firstName,
 				lastName,
@@ -112,6 +224,9 @@ export function EditPerson() {
 				bio: bio || undefined,
 				location: location || undefined,
 				birthDate: birthDate || undefined,
+				deathYear: deathYear ? Number(deathYear) : null,
+				phoneNumber: phoneNumber || null,
+				socialLinks: filteredLinks.length > 0 ? filteredLinks : null,
 			});
 			dispatch({ type: 'SET_EDITING', personId: null });
 			await refreshTree();
@@ -225,31 +340,29 @@ export function EditPerson() {
 						/>
 					</div>
 
-					{/* Location + Birth Date — 2-col */}
-					<div className='grid grid-cols-2 gap-3'>
-						<div>
-							<label className='mb-1.5 block text-sm font-semibold text-gray-700'>
-								Location
-							</label>
-							<input
-								type='text'
-								value={location}
-								onChange={(e) => setLocation(e.target.value)}
-								className='w-full rounded-xl border border-transparent bg-white px-4 py-3 text-gray-800 shadow-sm transition-colors focus:border-lime-500 focus:ring-2 focus:ring-lime-200'
-								placeholder='City, Country'
-							/>
-						</div>
-						<div>
-							<label className='mb-1.5 block text-sm font-semibold text-gray-700'>
-								Birth Date
-							</label>
-							<input
-								type='date'
-								value={birthDate ? birthDate.substring(0, 10) : ''}
-								onChange={(e) => setBirthDate(e.target.value)}
-								className='w-full rounded-xl border border-transparent bg-white px-4 py-3 text-gray-800 shadow-sm transition-colors focus:border-lime-500 focus:ring-2 focus:ring-lime-200'
-							/>
-						</div>
+					{/* Location */}
+					<div>
+						<label className='mb-1.5 block text-sm font-semibold text-gray-700'>
+							Location
+						</label>
+						<input
+							type='text'
+							value={location}
+							onChange={(e) => setLocation(e.target.value)}
+							className='w-full rounded-xl border border-transparent bg-white px-4 py-3 text-gray-800 shadow-sm transition-colors focus:border-lime-500 focus:ring-2 focus:ring-lime-200'
+							placeholder='City, Country'
+						/>
+					</div>
+
+					{/* Birthday — Month + Day only */}
+					<div>
+						<label className='mb-1.5 block text-sm font-semibold text-gray-700'>
+							Birthday (Month &amp; Day)
+						</label>
+						<MonthDayInput
+							value={birthDate}
+							onChange={(v) => setBirthDate(v ?? '')}
+						/>
 					</div>
 
 					{/* Deceased */}
@@ -283,6 +396,114 @@ export function EditPerson() {
 								/>
 							</div>
 						)}
+					</div>
+
+					{/* Phone Number — only for own profile */}
+					{isSelf && (
+						<div className='rounded-xl bg-white p-4 shadow-sm'>
+							<div className='mb-3 flex items-center justify-between'>
+								<h3 className='flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-gray-500'>
+									<Phone size={16} className='text-lime-500' />
+									Phone Number
+								</h3>
+								{person.phoneVerified ? (
+									<span className='flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700'>
+										<ShieldCheck size={12} /> Verified
+									</span>
+								) : phoneNumber ? (
+									<span className='flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700'>
+										<ShieldAlert size={12} /> Unverified
+									</span>
+								) : null}
+							</div>
+							<PhoneNumberField
+								value={phoneNumber}
+								onChange={setPhoneNumber}
+								placeholder='Enter your phone number'
+							/>
+							<p className='mt-2 text-xs text-gray-400'>
+								Changing your number will require re-verification via OTP.
+							</p>
+						</div>
+					)}
+
+					{/* Social Links */}
+					<div className='rounded-xl bg-white p-4 shadow-sm'>
+						<h3 className='mb-3 text-sm font-bold uppercase tracking-wide text-gray-500'>
+							Social Links
+						</h3>
+						<div className='space-y-3'>
+							{socialLinks.map((link, index) => {
+								const platform = SOCIAL_PLATFORMS.find(
+									(p) => p.type === link.type,
+								);
+								if (!platform) return null;
+								const Icon = platform.icon;
+								return (
+									<div key={link.type} className='space-y-2'>
+										<div className='flex items-center gap-2'>
+											<Icon size={18} className='shrink-0 text-gray-500' />
+											<span className='text-sm font-medium text-gray-700'>
+												{platform.label}
+											</span>
+											<button
+												type='button'
+												onClick={() => removeSocialLink(index)}
+												className='ml-auto text-red-400 transition-colors hover:text-red-600'
+											>
+												<Trash2 size={14} />
+											</button>
+										</div>
+										<div className='grid grid-cols-2 gap-2 pl-7'>
+											<input
+												type='text'
+												value={link.handle}
+												onChange={(e) =>
+													updateSocialLink(index, 'handle', e.target.value)
+												}
+												placeholder='@username'
+												className='w-full rounded-lg border border-transparent bg-gray-50 px-3 py-2 text-sm text-gray-800 transition-colors focus:border-lime-500 focus:ring-2 focus:ring-lime-200'
+											/>
+											<input
+												type='url'
+												value={link.url}
+												onChange={(e) =>
+													updateSocialLink(index, 'url', e.target.value)
+												}
+												placeholder={platform.placeholder}
+												className='w-full rounded-lg border border-transparent bg-gray-50 px-3 py-2 text-sm text-gray-800 transition-colors focus:border-lime-500 focus:ring-2 focus:ring-lime-200'
+											/>
+										</div>
+									</div>
+								);
+							})}
+
+							{socialLinks.length === 0 && (
+								<p className='text-sm text-gray-400'>
+									No social links added yet.
+								</p>
+							)}
+
+							{availablePlatforms.length > 0 && (
+								<div className='flex flex-wrap gap-2 pt-1'>
+									{availablePlatforms.map((platform) => {
+										const Icon = platform.icon;
+										return (
+											<button
+												key={platform.type}
+												type='button'
+												onClick={() => addSocialLink(platform.type)}
+												className='flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:border-lime-400 hover:bg-lime-50 hover:text-lime-700'
+											>
+												<Plus size={12} />
+												<Icon size={14} />
+												{platform.label}
+											</button>
+										);
+									})}
+								</div>
+							)}
+						</div>
 					</div>
 
 					{/* Parents */}
@@ -358,25 +579,67 @@ export function EditPerson() {
 										<span className='text-sm text-gray-700'>
 											{spouse ? `${spouse.firstName} ${spouse.lastName}` : sid}
 										</span>
-										<button
-											type='button'
-											onClick={() => handleRemoveSpouse(sid)}
-											className='text-xs font-medium text-red-400 hover:text-red-600'
-										>
-											✕ Remove
-										</button>
+										<div className='flex gap-2'>
+											<button
+												type='button'
+												onClick={() => handleDivorceSpouse(sid)}
+												className='text-xs font-medium text-amber-500 hover:text-amber-700'
+											>
+												Divorce
+											</button>
+											<button
+												type='button'
+												onClick={() => handleRemoveSpouse(sid)}
+												className='text-xs font-medium text-red-400 hover:text-red-600'
+											>
+												✕ Remove
+											</button>
+										</div>
 									</div>
 								);
 							})}
-							{person.spouseIds.length === 0 && (
-								<p className='text-sm text-gray-400'>No spouses</p>
-							)}
+							{person.exSpouseIds?.map((sid) => {
+								const spouse = state.people[sid];
+								return (
+									<div
+										key={sid}
+										className='flex items-center justify-between rounded-lg bg-red-50 px-3 py-2 border border-red-100'
+									>
+										<span className='text-sm text-gray-500'>
+											{spouse ? `${spouse.firstName} ${spouse.lastName}` : sid}
+											<span className='ml-1.5 text-xs text-red-400'>(ex)</span>
+										</span>
+										<div className='flex gap-2'>
+											<button
+												type='button'
+												onClick={() => handleReconcileSpouse(sid)}
+												className='text-xs font-medium text-green-500 hover:text-green-700'
+											>
+												Reconcile
+											</button>
+											<button
+												type='button'
+												onClick={() => handleRemoveSpouse(sid)}
+												className='text-xs font-medium text-red-400 hover:text-red-600'
+											>
+												✕ Remove
+											</button>
+										</div>
+									</div>
+								);
+							})}
+							{person.spouseIds.length === 0 &&
+								(!person.exSpouseIds || person.exSpouseIds.length === 0) && (
+									<p className='text-sm text-gray-400'>No spouses</p>
+								)}
 							<div className='mt-1 flex gap-2'>
 								<div className='flex-1'>
 									<PersonCombobox
 										people={Object.values(state.people).filter(
 											(p) =>
-												p.id !== person.id && !person.spouseIds.includes(p.id),
+												p.id !== person.id &&
+												!person.spouseIds.includes(p.id) &&
+												!person.exSpouseIds?.includes(p.id),
 										)}
 										value={addSpouseId}
 										onChange={setAddSpouseId}

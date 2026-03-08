@@ -197,8 +197,20 @@ function App() {
 	if (user.mustChangePassword) {
 		return (
 			<ChangePasswordScreen
+				user={user}
 				forced
-				onComplete={() => setUser({ ...user, mustChangePassword: false })}
+				onComplete={async () => {
+					try {
+						const refreshed = await getMe();
+						setUser(refreshed);
+					} catch {
+						setUser({
+							...user,
+							mustChangePassword: false,
+							phoneVerified: true,
+						});
+					}
+				}}
 			/>
 		);
 	}

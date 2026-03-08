@@ -20,6 +20,7 @@ interface SpouseEdge {
 	key: string;
 	type: 'spouse';
 	path: string;
+	isEx: boolean;
 }
 
 interface ParentChildEdge {
@@ -44,11 +45,15 @@ const CROSSING_PALETTE = [
 	'#6366f1', // indigo
 	'#f59e0b', // amber
 	'#10b981', // emerald
-	'#ef4444', // red
 	'#8b5cf6', // violet
 	'#ec4899', // pink
 	'#06b6d4', // cyan
 	'#f97316', // orange
+	'#14b8a6', // teal
+	'#a855f7', // purple
+	'#3b82f6', // blue
+	'#84cc16', // lime
+	'#e11d48', // rose
 ];
 
 const DEFAULT_PC_COLOR = '#94a3b8';
@@ -391,37 +396,38 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 		const result: EdgeData[] = [];
 		const drawnSpouses = new Set<string>();
 
-		/* ---- spouse edges ---- */
+		/* ---- spouse edges (current + ex) ---- */
 		for (const person of Object.values(state.people)) {
-			if (person.spouseIds && person.spouseIds.length > 0) {
-				for (const sid of person.spouseIds) {
-					if (positionMap.has(person.id) && positionMap.has(sid)) {
-						const key = [person.id, sid].sort().join('-');
-						if (!drawnSpouses.has(key)) {
-							drawnSpouses.add(key);
-							const p1 = positionMap.get(person.id)!;
-							const p2 = positionMap.get(sid)!;
-							const leftX = Math.min(p1.x, p2.x) + NODE_W / 2;
-							const rightX = Math.max(p1.x, p2.x) - NODE_W / 2;
-							const y = (p1.y + p2.y) / 2; // same row, so avg is fine
+			const allSpouses = [
+				...(person.spouseIds || []).map((id) => ({ id, isEx: false })),
+				...(person.exSpouseIds || []).map((id) => ({ id, isEx: true })),
+			];
+			for (const { id: sid, isEx } of allSpouses) {
+				if (positionMap.has(person.id) && positionMap.has(sid)) {
+					const key = [person.id, sid].sort().join('-');
+					if (!drawnSpouses.has(key)) {
+						drawnSpouses.add(key);
+						const p1 = positionMap.get(person.id)!;
+						const p2 = positionMap.get(sid)!;
+						const leftX = Math.min(p1.x, p2.x) + NODE_W / 2;
+						const rightX = Math.max(p1.x, p2.x) - NODE_W / 2;
+						const y = (p1.y + p2.y) / 2;
 
-							// If they aren't adjacent, the straight line might cross other people's nodes
-							// So we arc it slightly below the node's visual box (y + 80)
-							const isAdjacent = Math.abs(p1.x - p2.x) < 300;
-							let path = '';
-							if (isAdjacent) {
-								path = `M ${leftX} ${y} L ${rightX} ${y}`;
-							} else {
-								const arcY = y + NODE_H / 2 + 10;
-								path = `M ${leftX} ${y} L ${leftX} ${arcY} L ${rightX} ${arcY} L ${rightX} ${y}`;
-							}
-
-							result.push({
-								key,
-								type: 'spouse',
-								path,
-							});
+						const isAdjacent = Math.abs(p1.x - p2.x) < 300;
+						let path = '';
+						if (isAdjacent) {
+							path = `M ${leftX} ${y} L ${rightX} ${y}`;
+						} else {
+							const arcY = y + NODE_H / 2 + 10;
+							path = `M ${leftX} ${y} L ${leftX} ${arcY} L ${rightX} ${arcY} L ${rightX} ${y}`;
 						}
+
+						result.push({
+							key,
+							type: 'spouse',
+							path,
+							isEx,
+						});
 					}
 				}
 			}
@@ -507,7 +513,7 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 			const pbY = group[0].parentBottomY;
 			const ccTY = group[0].closestChildTopY;
 
-			// The top T-bar will be placed at pbY + 25.
+			// The top T-bar will be placed at pbY + 15.
 			// The spouse arc lines might go down to pbY + 10.
 			// We define the safe region for the bottom bars to avoid parent nodes entirely.
 			// The safe region starts safely below the parent node's top arrangements.
@@ -538,8 +544,8 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 		// Build bracket paths with double T-bar structure
 		for (const fg of familyGeos) {
 			const bottomBarY =
-				horizontalBarYMap.get(fg.familyKey) ?? fg.closestChildTopY - 40;
-			const topBarY = fg.parentBottomY + 25;
+				horizontalBarYMap.get(fg.familyKey) ?? fg.closestChildTopY - 20;
+			const topBarY = fg.parentBottomY + 15;
 
 			// === Top T-bar: stems from each parent's bottom ===
 			let path = '';
@@ -592,7 +598,7 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 			});
 		}
 
-		/* ---- detect crossings & assign colours ---- */
+		/* ---- assign distinct colours to ALL parent-child brackets ---- */
 		const pcEdges = result.filter(
 			(e): e is ParentChildEdge => e.type === 'parent-child',
 		);
@@ -610,24 +616,26 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 			}
 		}
 
-		// Greedy graph colouring for crossing edges
+		// Greedy graph colouring — assign a colour to EVERY bracket,
+		// ensuring crossing brackets never share the same colour.
 		const colorIdx = new Map<number, number>();
-		for (const idx of adj.keys()) {
+		for (let i = 0; i < pcEdges.length; i++) {
 			const used = new Set<number>();
-			for (const nb of adj.get(idx)!) {
-				if (colorIdx.has(nb)) used.add(colorIdx.get(nb)!);
+			const neighbors = adj.get(i);
+			if (neighbors) {
+				for (const nb of neighbors) {
+					if (colorIdx.has(nb)) used.add(colorIdx.get(nb)!);
+				}
 			}
-			let c = 0;
-			while (used.has(c)) c++;
-			colorIdx.set(idx, c);
+			let c = i % CROSSING_PALETTE.length;
+			while (used.has(c)) c = (c + 1) % CROSSING_PALETTE.length;
+			colorIdx.set(i, c);
 		}
 
-		// Apply colours
+		// Apply colours to all brackets
 		for (let i = 0; i < pcEdges.length; i++) {
-			if (colorIdx.has(i)) {
-				pcEdges[i].color =
-					CROSSING_PALETTE[colorIdx.get(i)! % CROSSING_PALETTE.length];
-			}
+			pcEdges[i].color =
+				CROSSING_PALETTE[colorIdx.get(i)! % CROSSING_PALETTE.length];
 		}
 
 		return result;
@@ -762,21 +770,46 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 				>
 					{edgeData.map((edge) =>
 						edge.type === 'spouse' ? (
-							<path
-								key={edge.key}
-								d={edge.path}
-								fill='none'
-								stroke='#a5b4fc'
-								strokeWidth={2}
-								strokeDasharray='6 3'
-							/>
+							<g key={edge.key}>
+								<path
+									d={edge.path}
+									fill='none'
+									stroke={edge.isEx ? '#f87171' : '#a5b4fc'}
+									strokeWidth={edge.isEx ? 1.5 : 2}
+									strokeDasharray={edge.isEx ? '4 4' : '6 3'}
+									strokeOpacity={edge.isEx ? 0.6 : 1}
+								/>
+								{edge.isEx &&
+									(() => {
+										const parts =
+											edge.path.match(/-?[\d.]+/g)?.map(Number) || [];
+										if (parts.length >= 4) {
+											const mx = (parts[0] + parts[parts.length - 2]) / 2;
+											const my = (parts[1] + parts[parts.length - 1]) / 2;
+											return (
+												<text
+													x={mx}
+													y={my}
+													textAnchor='middle'
+													dominantBaseline='central'
+													fontSize={14}
+													fontWeight='bold'
+													fill='#ef4444'
+												>
+													✕
+												</text>
+											);
+										}
+										return null;
+									})()}
+							</g>
 						) : (
 							<path
 								key={edge.key}
 								d={edge.path}
 								fill='none'
 								stroke={edge.color}
-								strokeWidth={edge.color !== DEFAULT_PC_COLOR ? 2.5 : 2}
+								strokeWidth={2.5}
 							/>
 						),
 					)}

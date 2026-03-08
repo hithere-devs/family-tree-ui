@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import {
 	Calendar,
-	Clock,
 	Heart,
 	MoreVertical,
 	MapPin,
@@ -10,33 +9,49 @@ import {
 	UserPlus,
 	Trash2,
 	Link as LinkIcon,
+	Phone,
+	Facebook,
+	Instagram,
+	Twitter,
+	Linkedin,
+	ShieldCheck,
+	ShieldAlert,
+	ExternalLink,
+	Send,
 } from 'lucide-react';
 import { useFamilyTree } from '../../state/family-tree-context';
 import { getAvatarUrl } from '../../utils/avatar';
 import { getRelationship } from '../../utils/relationship';
 import { canEdit } from '../../state/permissions';
+import { formatBirthday } from '../../utils/birthdate';
+import { PhoneNumberField } from '../phone-number-field';
 import * as api from '../../services/api-client';
+
+const SOCIAL_ICONS: Record<string, typeof Facebook> = {
+	facebook: Facebook,
+	instagram: Instagram,
+	twitter: Twitter,
+	linkedin: Linkedin,
+};
 
 export const ProfileScreen = () => {
 	const { state, dispatch, currentUser, refreshTree } = useFamilyTree();
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const [deleting, setDeleting] = useState(false);
 
+	// Phone verification inline state
+	const [showVerifyPhone, setShowVerifyPhone] = useState(false);
+	const [verifyPhoneNumber, setVerifyPhoneNumber] = useState('');
+	const [otpSent, setOtpSent] = useState(false);
+	const [otp, setOtp] = useState('');
+	const [phoneLoading, setPhoneLoading] = useState(false);
+	const [phoneError, setPhoneError] = useState('');
+	const [phoneSuccess, setPhoneSuccess] = useState('');
+
 	const personId = state.selectedPersonId || state.currentUser?.personId || '';
 	const person = state.people[personId];
 
 	if (!person) return null;
-
-	const calculateAge = () => {
-		if (person.birthDate) {
-			const bd = new Date(person.birthDate);
-			if (!isNaN(bd.getTime()))
-				return new Date().getFullYear() - bd.getFullYear();
-		}
-		if (person.birthYear) return new Date().getFullYear() - person.birthYear;
-		return 'Unknown';
-	};
-	const age = calculateAge();
 
 	const relationshipText = currentUser
 		? getRelationship(currentUser.personId, person.id, state.people)
@@ -46,19 +61,44 @@ export const ProfileScreen = () => {
 		? canEdit(currentUser, person.id, state.people)
 		: false;
 
-	const formatBirthDate = (dateString?: string | null) => {
-		if (!dateString) return 'Unknown';
+	const isSelf = currentUser?.personId === person.id;
+
+	async function handleSendOtp() {
+		if (!verifyPhoneNumber.trim()) return;
+		setPhoneLoading(true);
+		setPhoneError('');
+		setPhoneSuccess('');
 		try {
-			const date = new Date(dateString);
-			if (isNaN(date.getTime())) return dateString;
-			return date.toLocaleDateString(undefined, {
-				month: 'long',
-				day: 'numeric',
-			});
-		} catch {
-			return dateString;
+			await api.requestPhoneOtp(verifyPhoneNumber.trim());
+			setOtpSent(true);
+			setPhoneSuccess('OTP sent! Enter the code below.');
+		} catch (err) {
+			setPhoneError(err instanceof Error ? err.message : 'Failed to send OTP');
+		} finally {
+			setPhoneLoading(false);
 		}
-	};
+	}
+
+	async function handleVerifyOtp() {
+		if (!otp.trim()) return;
+		setPhoneLoading(true);
+		setPhoneError('');
+		setPhoneSuccess('');
+		try {
+			await api.verifyPhoneOtp(otp.trim());
+			setPhoneSuccess('Phone verified!');
+			setShowVerifyPhone(false);
+			setOtpSent(false);
+			setOtp('');
+			await refreshTree();
+		} catch (err) {
+			setPhoneError(
+				err instanceof Error ? err.message : 'Failed to verify phone',
+			);
+		} finally {
+			setPhoneLoading(false);
+		}
+	}
 
 	async function handleDelete() {
 		if (!confirmDelete) {
@@ -164,7 +204,7 @@ export const ProfileScreen = () => {
 							Birthday:
 						</span>
 						<span className='text-sm text-gray-500 text-right'>
-							{formatBirthDate(person.birthDate)}
+							{formatBirthday(person.birthDate)}
 						</span>
 					</div>
 
@@ -179,17 +219,150 @@ export const ProfileScreen = () => {
 							</span>
 						</div>
 					)}
-
-					{age !== 'Unknown' && !person.isDeceased && (
-						<div className='flex items-center justify-between pt-1'>
-							<span className='flex items-center text-sm font-medium text-gray-600'>
-								<Clock className='mr-3 text-lime-500' size={18} />
-								Age:
-							</span>
-							<span className='text-sm text-gray-500'>{age} Years</span>
-						</div>
-					)}
 				</div>
+
+				{/* Phone Number */}
+				{(person.phoneNumber || isSelf) && (
+					<div className='rounded-3xl bg-white p-6 shadow-sm border border-gray-100 space-y-3'>
+						<div className='flex items-center justify-between'>
+							<span className='flex items-center text-sm font-medium text-gray-600'>
+								<Phone className='mr-2 text-lime-500' size={18} />
+								Phone Number
+							</span>
+							{person.phoneNumber &&
+								(person.phoneVerified ? (
+									<span className='flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700'>
+										<ShieldCheck size={12} /> Verified
+									</span>
+								) : (
+									<span className='flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700'>
+										<ShieldAlert size={12} /> Unverified
+									</span>
+								))}
+						</div>
+
+						<p className='text-sm text-gray-500'>
+							{person.phoneNumber || 'Not added yet'}
+						</p>
+
+						{/* Verify phone inline — only for own profile + not yet verified */}
+						{isSelf && person.phoneNumber && !person.phoneVerified && (
+							<>
+								{!showVerifyPhone ? (
+									<button
+										onClick={() => {
+											setVerifyPhoneNumber(person.phoneNumber ?? '');
+											setShowVerifyPhone(true);
+										}}
+										className='flex items-center gap-2 rounded-lg bg-lime-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-lime-600'
+									>
+										<Send size={14} /> Verify Now
+									</button>
+								) : (
+									<div className='space-y-3 rounded-xl bg-gray-50 p-4'>
+										{phoneError && (
+											<div className='rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600'>
+												{phoneError}
+											</div>
+										)}
+										{phoneSuccess && (
+											<div className='rounded-lg border border-green-100 bg-green-50 px-3 py-2 text-xs text-green-700'>
+												{phoneSuccess}
+											</div>
+										)}
+
+										<PhoneNumberField
+											value={verifyPhoneNumber}
+											onChange={setVerifyPhoneNumber}
+										/>
+
+										<button
+											type='button'
+											onClick={handleSendOtp}
+											disabled={!verifyPhoneNumber.trim() || phoneLoading}
+											className='w-full rounded-lg bg-lime-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-lime-600 disabled:cursor-not-allowed disabled:opacity-50'
+										>
+											{phoneLoading && !otpSent
+												? 'Sending…'
+												: otpSent
+													? 'Resend OTP'
+													: 'Send OTP'}
+										</button>
+
+										{otpSent && (
+											<>
+												<input
+													type='text'
+													value={otp}
+													onChange={(e) => setOtp(e.target.value)}
+													placeholder='Enter OTP'
+													className='w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm tracking-[0.3em] focus:border-lime-500 focus:outline-none focus:ring-2 focus:ring-lime-500'
+												/>
+												<button
+													type='button'
+													onClick={handleVerifyOtp}
+													disabled={!otp.trim() || phoneLoading}
+													className='w-full rounded-lg bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50'
+												>
+													{phoneLoading ? 'Verifying…' : 'Verify Phone'}
+												</button>
+											</>
+										)}
+
+										<button
+											type='button'
+											onClick={() => {
+												setShowVerifyPhone(false);
+												setOtpSent(false);
+												setOtp('');
+												setPhoneError('');
+												setPhoneSuccess('');
+											}}
+											className='w-full text-xs text-gray-500 hover:text-gray-700'
+										>
+											Cancel
+										</button>
+									</div>
+								)}
+							</>
+						)}
+					</div>
+				)}
+
+				{/* Social Links */}
+				{person.socialLinks && person.socialLinks.length > 0 && (
+					<div className='rounded-3xl bg-white p-6 shadow-sm border border-gray-100 space-y-3'>
+						<h3 className='flex items-center text-sm font-medium text-gray-600'>
+							<LinkIcon className='mr-2 text-lime-500' size={18} />
+							Social Links
+						</h3>
+						<div className='space-y-2'>
+							{person.socialLinks.map((link) => {
+								const Icon = SOCIAL_ICONS[link.type] ?? LinkIcon;
+								return (
+									<a
+										key={link.type}
+										href={link.url || '#'}
+										target='_blank'
+										rel='noopener noreferrer'
+										className='flex items-center gap-3 rounded-xl bg-gray-50 px-4 py-3 text-sm text-gray-700 transition-colors hover:bg-gray-100'
+									>
+										<Icon size={18} className='shrink-0 text-gray-500' />
+										<span className='flex-1 truncate'>
+											{link.handle || link.url || link.type}
+										</span>
+										{link.url && (
+											<ExternalLink
+												size={14}
+												className='shrink-0 text-gray-400'
+											/>
+										)}
+									</a>
+								);
+							})}
+						</div>
+					</div>
+				)}
 
 				{/* Admin Controls for Relations */}
 				{state.isAdminMode && currentUser?.role === 'admin' && (

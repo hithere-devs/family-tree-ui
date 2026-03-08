@@ -7,7 +7,7 @@ export interface NodePosition {
 }
 
 const H_GAP = 320; // minimum gap between the last person of one unit and the first of the next
-const V_GAP = 480; // vertical center-to-center
+const V_GAP = 600; // vertical center-to-center
 const COUPLE_GAP = 180; // gap between spouses within a couple
 
 /**
@@ -95,10 +95,11 @@ export function computeTreeLayout(
     while (spouseQueue.length > 0) {
         const id = spouseQueue.shift()!;
         const person = people[id];
-        if (!person?.spouseIds) continue;
+        if (!person) continue;
         const g = gen.get(id)!;
+        const allSpouses = [...(person.spouseIds || []), ...(person.exSpouseIds || [])];
 
-        for (const sid of person.spouseIds) {
+        for (const sid of allSpouses) {
             if (people[sid] && !gen.has(sid)) {
                 gen.set(sid, g);
                 spouseQueue.push(sid);
@@ -132,8 +133,9 @@ export function computeTreeLayout(
     const reconciled = new Set<string>();
     for (const [id, g] of gen) {
         const person = people[id];
-        if (!person?.spouseIds) continue;
-        for (const sid of person.spouseIds) {
+        if (!person) continue;
+        const allSpouses = [...(person.spouseIds || []), ...(person.exSpouseIds || [])];
+        for (const sid of allSpouses) {
             const pairKey = [id, sid].sort().join(',');
             if (reconciled.has(pairKey)) continue;
             reconciled.add(pairKey);
@@ -240,8 +242,9 @@ function layoutRow(
         while (spouseQueue.length > 0) {
             const curr = spouseQueue.shift()!;
             const p = people[curr];
-            if (p?.spouseIds) {
-                for (const sid of p.spouseIds) {
+            if (p?.spouseIds || p?.exSpouseIds) {
+                const allSpouses = [...(p.spouseIds || []), ...(p.exSpouseIds || [])];
+                for (const sid of allSpouses) {
                     if (ids.includes(sid) && !cluster.has(sid)) {
                         cluster.add(sid);
                         placed.add(sid);
@@ -271,36 +274,90 @@ function layoutRow(
                 }
             }
         } else {
-            // 3+ members — find the hub (person with the most spouse
-            // connections within the cluster) and center them
-            let hubId = members[0];
-            let maxConn = 0;
+            // 3+ members — build adjacency graph and find chain/path ordering
+            // so that each spouse pair (current or ex) is adjacent in the layout.
+            const adjMap = new Map<string, Set<string>>();
             for (const uid of members) {
-                const conn = people[uid]?.spouseIds?.filter(
-                    (sid) => cluster.has(sid),
-                ).length ?? 0;
-                if (conn > maxConn) {
-                    maxConn = conn;
-                    hubId = uid;
+                adjMap.set(uid, new Set());
+            }
+            for (const uid of members) {
+                const allSp = [...(people[uid]?.spouseIds || []), ...(people[uid]?.exSpouseIds || [])];
+                for (const sid of allSp) {
+                    if (cluster.has(sid)) {
+                        adjMap.get(uid)!.add(sid);
+                        adjMap.get(sid)!.add(uid);
+                    }
                 }
             }
 
-            const spouses = members.filter((uid) => uid !== hubId);
-            // Sort spouses by positional hints, then gender
-            spouses.sort((a, b) => {
-                const rxA = avgRelX(a);
-                const rxB = avgRelX(b);
-                if (rxA !== null && rxB !== null && rxA !== rxB) return rxA - rxB;
-                return (people[a]?.gender ?? '').localeCompare(
-                    people[b]?.gender ?? '',
-                );
-            });
+            // Try to find a Hamiltonian path (chain) through the spouse graph.
+            // For small clusters (typical family trees), brute-force DFS is fine.
+            function findChain(): string[] | null {
+                // Start from leaf nodes (degree 1) for better results
+                const leaves = members.filter((m) => (adjMap.get(m)?.size ?? 0) === 1);
+                const starts = leaves.length > 0 ? leaves : members;
 
-            // Split spouses: half on left, half on right, hub in center
-            const leftCount = Math.floor(spouses.length / 2);
-            const left = spouses.slice(0, leftCount);
-            const right = spouses.slice(leftCount);
-            units.push([...left, hubId, ...right]);
+                for (const start of starts) {
+                    const visited = new Set<string>([start]);
+                    const path = [start];
+
+                    function dfs(): boolean {
+                        if (path.length === members.length) return true;
+                        const curr = path[path.length - 1];
+                        for (const nb of adjMap.get(curr) || []) {
+                            if (!visited.has(nb)) {
+                                visited.add(nb);
+                                path.push(nb);
+                                if (dfs()) return true;
+                                path.pop();
+                                visited.delete(nb);
+                            }
+                        }
+                        return false;
+                    }
+
+                    if (dfs()) return path;
+                }
+                return null;
+            }
+
+            const chain = findChain();
+
+            if (chain) {
+                // Orient chain by positional hints (leftmost hint goes first)
+                const firstHintX = avgRelX(chain[0]);
+                const lastHintX = avgRelX(chain[chain.length - 1]);
+                if (firstHintX !== null && lastHintX !== null && firstHintX > lastHintX) {
+                    chain.reverse();
+                }
+                units.push(chain);
+            } else {
+                // Fallback: hub-and-spoke for non-chain graphs
+                let hubId = members[0];
+                let maxConn = 0;
+                for (const uid of members) {
+                    const conn = adjMap.get(uid)?.size ?? 0;
+                    if (conn > maxConn) {
+                        maxConn = conn;
+                        hubId = uid;
+                    }
+                }
+
+                const spouses = members.filter((uid) => uid !== hubId);
+                spouses.sort((a, b) => {
+                    const rxA = avgRelX(a);
+                    const rxB = avgRelX(b);
+                    if (rxA !== null && rxB !== null && rxA !== rxB) return rxA - rxB;
+                    return (people[a]?.gender ?? '').localeCompare(
+                        people[b]?.gender ?? '',
+                    );
+                });
+
+                const leftCount = Math.floor(spouses.length / 2);
+                const left = spouses.slice(0, leftCount);
+                const right = spouses.slice(leftCount);
+                units.push([...left, hubId, ...right]);
+            }
         }
     }
 
