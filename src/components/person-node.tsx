@@ -3,6 +3,8 @@ import { Plus } from 'lucide-react';
 import type { Person } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { useFamilyTree } from '../state/family-tree-context';
+import { toUrdu } from '../utils/transliterate';
+import { useLanguage } from '../state/language-context';
 
 interface PersonNodeProps {
 	person: Person;
@@ -67,6 +69,7 @@ export function PersonNode({
 	onOpen,
 }: PersonNodeProps) {
 	const { dispatch } = useFamilyTree();
+	const { isUrdu } = useLanguage();
 	const [showActions, setShowActions] = useState(false);
 
 	/* Mobile double-tap detection */
@@ -74,6 +77,8 @@ export function PersonNode({
 
 	const avatarUrl = getAvatarUrl(person);
 	const label = isCenter ? 'me' : person.firstName;
+	const urduFirstName = toUrdu(person.firstName);
+	const urduLastName = person.lastName ? toUrdu(person.lastName) : '';
 
 	/* ---- Desktop click ---- */
 	function handleClick(e: React.MouseEvent) {
@@ -178,17 +183,44 @@ export function PersonNode({
 					showActions ? 'bg-gray-900/80' : ''
 				}`}
 			>
-				<span
-					className={`text-center text-sm font-semibold ${showActions ? 'text-white' : 'text-gray-700'}`}
-				>
-					{label}
-				</span>
-				{person.lastName && (
-					<span
-						className={`text-center text-[10px] ${showActions ? 'text-gray-300' : 'text-gray-400'}`}
-					>
-						{person.lastName}
-					</span>
+				{isUrdu && urduFirstName ? (
+					<>
+						<span
+							className={`text-center text-sm font-semibold leading-snug ${showActions ? 'text-white' : 'text-gray-700'}`}
+							style={{
+								fontFamily: "'Noto Nastaliq Urdu', serif",
+								direction: 'rtl',
+							}}
+						>
+							{urduFirstName}
+						</span>
+						{urduLastName && (
+							<span
+								className={`text-center text-[10px] ${showActions ? 'text-gray-300' : 'text-gray-400'}`}
+								style={{
+									fontFamily: "'Noto Nastaliq Urdu', serif",
+									direction: 'rtl',
+								}}
+							>
+								{urduLastName}
+							</span>
+						)}
+					</>
+				) : (
+					<>
+						<span
+							className={`text-center text-sm font-semibold ${showActions ? 'text-white' : 'text-gray-700'}`}
+						>
+							{label}
+						</span>
+						{person.lastName && (
+							<span
+								className={`text-center text-[10px] ${showActions ? 'text-gray-300' : 'text-gray-400'}`}
+							>
+								{person.lastName}
+							</span>
+						)}
+					</>
 				)}
 			</div>
 		</div>

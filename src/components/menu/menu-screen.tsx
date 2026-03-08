@@ -1,7 +1,14 @@
 import React, { useState } from 'react';
 import { useFamilyTree } from '../../state/family-tree-context';
-import { LogOut, ShieldAlert, UserPlus, KeyRound } from 'lucide-react';
+import {
+	LogOut,
+	ShieldAlert,
+	UserPlus,
+	KeyRound,
+	Languages,
+} from 'lucide-react';
 import { ChangePasswordScreen } from '../change-password-screen';
+import { useLanguage } from '../../state/language-context';
 
 interface MenuScreenProps {
 	onLogout: () => void;
@@ -11,6 +18,7 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({ onLogout }) => {
 	const { state, dispatch, currentUser } = useFamilyTree();
 	const isAdmin = currentUser?.role === 'admin';
 	const [showChangePassword, setShowChangePassword] = useState(false);
+	const { lang, setLang, isUrdu } = useLanguage();
 
 	if (showChangePassword) {
 		return (
@@ -29,6 +37,49 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({ onLogout }) => {
 
 			<div className='flex-1 overflow-y-auto pb-24 md:pb-8'>
 				<div className='mx-auto w-full max-w-2xl px-4'>
+					{/* Language Toggle */}
+					<div className='mb-6 space-y-3'>
+						<h2 className='px-2 text-xs font-bold uppercase tracking-wider text-gray-400'>
+							Language
+						</h2>
+						<div className='overflow-hidden rounded-2xl bg-white shadow-sm border border-gray-100'>
+							<div className='flex items-center justify-between p-4'>
+								<div className='flex items-center space-x-3'>
+									<div className='rounded-xl bg-sky-50 p-2.5 text-sky-600'>
+										<Languages size={20} />
+									</div>
+									<span className='text-[15px] font-semibold text-gray-800'>
+										Display Language
+									</span>
+								</div>
+								{/* Pill toggle */}
+								<div className='flex rounded-full bg-gray-100 p-0.5 text-sm font-semibold'>
+									<button
+										onClick={() => setLang('en')}
+										className={`rounded-full px-3 py-1 transition-colors ${
+											!isUrdu
+												? 'bg-white text-gray-800 shadow-sm'
+												: 'text-gray-400'
+										}`}
+									>
+										EN
+									</button>
+									<button
+										onClick={() => setLang('ur')}
+										className={`rounded-full px-3 py-1 transition-colors ${
+											isUrdu
+												? 'bg-white text-gray-800 shadow-sm'
+												: 'text-gray-400'
+										}`}
+										style={{ fontFamily: "'Noto Nastaliq Urdu', serif" }}
+									>
+										اردو
+									</button>
+								</div>
+							</div>
+						</div>
+					</div>
+
 					{/* Admin Controls */}
 					{isAdmin && (
 						<div className='mb-6 space-y-3'>

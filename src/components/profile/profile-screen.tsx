@@ -26,6 +26,8 @@ import { canEdit } from '../../state/permissions';
 import { formatBirthday } from '../../utils/birthdate';
 import { PhoneNumberField } from '../phone-number-field';
 import * as api from '../../services/api-client';
+import { useLanguage } from '../../state/language-context';
+import { toUrdu } from '../../utils/transliterate';
 
 const SOCIAL_ICONS: Record<string, typeof Facebook> = {
 	facebook: Facebook,
@@ -34,8 +36,33 @@ const SOCIAL_ICONS: Record<string, typeof Facebook> = {
 	linkedin: Linkedin,
 };
 
+const SOCIAL_BASE_URLS: Record<string, string> = {
+	facebook: 'https://facebook.com/',
+	instagram: 'https://instagram.com/',
+	twitter: 'https://x.com/',
+	linkedin: 'https://linkedin.com/in/',
+};
+
+function buildSocialUrl(type: string, url?: string, handle?: string): string {
+	// If a full URL is provided, use it directly
+	if (url && /^https?:\/\//i.test(url)) return url;
+
+	// Build from handle (strip leading @)
+	const raw = handle || url || '';
+	const clean = raw.replace(/^@/, '').trim();
+	if (!clean) return '#';
+
+	const base = SOCIAL_BASE_URLS[type];
+	if (base) return `${base}${clean}`;
+
+	// Unknown platform — try using `url` or `handle` as-is
+	if (url) return url.startsWith('http') ? url : `https://${url}`;
+	return '#';
+}
+
 export const ProfileScreen = () => {
 	const { state, dispatch, currentUser, refreshTree } = useFamilyTree();
+	const { isUrdu } = useLanguage();
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const [deleting, setDeleting] = useState(false);
 
@@ -145,10 +172,24 @@ export const ProfileScreen = () => {
 					/>
 				</div>
 				<h1 className='text-2xl font-bold text-gray-800 flex items-center justify-center gap-2 flex-wrap'>
-					{person.firstName} {person.lastName}
+					{isUrdu ? (
+						<span
+							style={{
+								fontFamily: "'Noto Nastaliq Urdu', serif",
+								direction: 'rtl',
+							}}
+						>
+							{toUrdu(person.firstName)}{' '}
+							{person.lastName ? toUrdu(person.lastName) : ''}
+						</span>
+					) : (
+						<>
+							{person.firstName} {person.lastName}
+						</>
+					)}
 					{person.isDeceased && (
 						<span className='rounded-full bg-gray-800 px-2.5 py-0.5 text-xs font-semibold tracking-wide text-white uppercase ml-1'>
-							Late
+							{isUrdu ? 'مرحوم' : 'Late'}
 						</span>
 					)}
 				</h1>
@@ -167,7 +208,7 @@ export const ProfileScreen = () => {
 						className='flex items-center space-x-2 rounded-full bg-lime-500 px-6 py-2.5 text-sm font-medium text-white shadow-md transition-colors hover:bg-lime-600'
 					>
 						<Edit size={16} />
-						<span>Edit Profile</span>
+						<span>{isUrdu ? 'پروفائل میں ترمیم' : 'Edit Profile'}</span>
 					</button>
 				</div>
 			)}
@@ -180,7 +221,7 @@ export const ProfileScreen = () => {
 						<div className='pb-4 border-b border-gray-100'>
 							<span className='flex items-center text-sm font-medium text-gray-600 mb-2'>
 								<FileText className='mr-2 text-lime-500' size={18} />
-								Biography
+								{isUrdu ? 'سوانح حیات' : 'Biography'}
 							</span>
 							<p className='text-sm text-gray-500 leading-relaxed whitespace-pre-wrap'>
 								{person.bio}
@@ -191,17 +232,17 @@ export const ProfileScreen = () => {
 					<div className='flex items-center justify-between border-b border-gray-100 pb-3 last:border-0 last:pb-0'>
 						<span className='flex items-center text-sm font-medium text-gray-600'>
 							<MapPin className='mr-3 text-lime-500' size={18} />
-							Living in:
+							{isUrdu ? 'مقام:' : 'Living in:'}
 						</span>
 						<span className='text-sm text-gray-500 text-right'>
-							{person.location || 'Unknown'}
+							{person.location || (isUrdu ? 'نامعلوم' : 'Unknown')}
 						</span>
 					</div>
 
 					<div className='flex items-center justify-between border-b border-gray-100 pb-3 last:border-0 last:pb-0'>
 						<span className='flex items-center text-sm font-medium text-gray-600'>
 							<Calendar className='mr-3 text-lime-500' size={18} />
-							Birthday:
+							{isUrdu ? 'تاریخ پیدائش:' : 'Birthday:'}
 						</span>
 						<span className='text-sm text-gray-500 text-right'>
 							{formatBirthday(person.birthDate)}
@@ -212,7 +253,7 @@ export const ProfileScreen = () => {
 						<div className='flex items-center justify-between border-b border-gray-100 pb-3 last:border-0 last:pb-0'>
 							<span className='flex items-center text-sm font-medium text-gray-600'>
 								<Heart className='mr-3 text-gray-400' size={18} />
-								Death Year:
+								{isUrdu ? 'سال وفات:' : 'Death Year:'}
 							</span>
 							<span className='text-sm text-gray-500 text-right'>
 								{person.deathYear}
@@ -227,22 +268,25 @@ export const ProfileScreen = () => {
 						<div className='flex items-center justify-between'>
 							<span className='flex items-center text-sm font-medium text-gray-600'>
 								<Phone className='mr-2 text-lime-500' size={18} />
-								Phone Number
+								{isUrdu ? 'فون نمبر' : 'Phone Number'}
 							</span>
 							{person.phoneNumber &&
 								(person.phoneVerified ? (
 									<span className='flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700'>
-										<ShieldCheck size={12} /> Verified
+										<ShieldCheck size={12} />{' '}
+										{isUrdu ? 'تصدیق شدہ' : 'Verified'}
 									</span>
 								) : (
 									<span className='flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700'>
-										<ShieldAlert size={12} /> Unverified
+										<ShieldAlert size={12} />{' '}
+										{isUrdu ? 'غیر تصدیق شدہ' : 'Unverified'}
 									</span>
 								))}
 						</div>
 
 						<p className='text-sm text-gray-500'>
-							{person.phoneNumber || 'Not added yet'}
+							{person.phoneNumber ||
+								(isUrdu ? 'ابھی شامل نہیں' : 'Not added yet')}
 						</p>
 
 						{/* Verify phone inline — only for own profile + not yet verified */}
@@ -334,15 +378,16 @@ export const ProfileScreen = () => {
 					<div className='rounded-3xl bg-white p-6 shadow-sm border border-gray-100 space-y-3'>
 						<h3 className='flex items-center text-sm font-medium text-gray-600'>
 							<LinkIcon className='mr-2 text-lime-500' size={18} />
-							Social Links
+							{isUrdu ? 'سوشل لنکس' : 'Social Links'}
 						</h3>
 						<div className='space-y-2'>
 							{person.socialLinks.map((link) => {
 								const Icon = SOCIAL_ICONS[link.type] ?? LinkIcon;
+								const href = buildSocialUrl(link.type, link.url, link.handle);
 								return (
 									<a
 										key={link.type}
-										href={link.url || '#'}
+										href={href}
 										target='_blank'
 										rel='noopener noreferrer'
 										className='flex items-center gap-3 rounded-xl bg-gray-50 px-4 py-3 text-sm text-gray-700 transition-colors hover:bg-gray-100'
@@ -351,12 +396,10 @@ export const ProfileScreen = () => {
 										<span className='flex-1 truncate'>
 											{link.handle || link.url || link.type}
 										</span>
-										{link.url && (
-											<ExternalLink
-												size={14}
-												className='shrink-0 text-gray-400'
-											/>
-										)}
+										<ExternalLink
+											size={14}
+											className='shrink-0 text-gray-400'
+										/>
 									</a>
 								);
 							})}

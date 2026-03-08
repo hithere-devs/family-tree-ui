@@ -1,4 +1,5 @@
 import type { Person } from '../types/person';
+import { toUrdu } from './transliterate';
 
 export function getPersonFullName(
     person: Pick<Person, 'firstName' | 'lastName'>,
@@ -56,11 +57,12 @@ export function getPersonSearchText(
     duplicateNames: Map<string, number>,
 ): string {
     const name = getPersonFullName(person);
+    const urduName = toUrdu(name);
     const disambiguation = getPersonDisambiguation(
         person,
         peopleById,
         duplicateNames,
     );
 
-    return [name, disambiguation].filter(Boolean).join(' ').toLowerCase();
+    return [name, urduName, disambiguation].filter(Boolean).join(' ').toLowerCase();
 }

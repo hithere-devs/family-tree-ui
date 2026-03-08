@@ -17,6 +17,7 @@ import {
 	getMe,
 	type LoginResponse,
 } from './services/api-client';
+import { LanguageProvider } from './state/language-context';
 
 /* ------------------------------------------------------------------ */
 /*  Inner content (inside provider — has access to context)            */
@@ -217,9 +218,11 @@ function App() {
 
 	return (
 		<div className='relative h-full w-full'>
-			<FamilyTreeProvider initialUser={user}>
-				<AppContent onLogout={handleLogout} />
-			</FamilyTreeProvider>
+			<LanguageProvider>
+				<FamilyTreeProvider initialUser={user}>
+					<AppContent onLogout={handleLogout} />
+				</FamilyTreeProvider>
+			</LanguageProvider>
 		</div>
 	);
 }

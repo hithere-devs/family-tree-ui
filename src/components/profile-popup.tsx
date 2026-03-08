@@ -2,10 +2,13 @@ import { useState } from 'react';
 import { useFamilyTree } from '../state/family-tree-context';
 import { canEdit, getRelationshipLabel } from '../state/permissions';
 import * as api from '../services/api-client';
+import { useLanguage } from '../state/language-context';
+import { toUrdu } from '../utils/transliterate';
 
 export function ProfilePopup() {
 	const { state, dispatch, currentUser, centerPersonId, refreshTree } =
 		useFamilyTree();
+	const { isUrdu } = useLanguage();
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const [deleting, setDeleting] = useState(false);
 
@@ -66,7 +69,21 @@ export function ProfilePopup() {
 				</div>
 
 				<h3 className='text-lg font-bold text-gray-800'>
-					{person.firstName} {person.lastName}
+					{isUrdu ? (
+						<span
+							style={{
+								fontFamily: "'Noto Nastaliq Urdu', serif",
+								direction: 'rtl',
+							}}
+						>
+							{toUrdu(person.firstName)}{' '}
+							{person.lastName ? toUrdu(person.lastName) : ''}
+						</span>
+					) : (
+						<>
+							{person.firstName} {person.lastName}
+						</>
+					)}
 				</h3>
 
 				<span className='text-sm text-indigo-500 font-medium mt-1'>

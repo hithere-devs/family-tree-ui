@@ -11,6 +11,8 @@ import {
 	getPersonFullName,
 	getPersonSearchText,
 } from '../utils/person-labels';
+import { useLanguage } from '../state/language-context';
+import { toUrdu } from '../utils/transliterate';
 
 /* ------------------------------------------------------------------ */
 /*  Edge data types (pure data, no JSX in the memo)                    */
@@ -141,6 +143,7 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 		() => buildDuplicateNameMap(allPeople),
 		[allPeople],
 	);
+	const { isUrdu } = useLanguage();
 	const getDisambiguation = (person: (typeof allPeople)[number]) =>
 		getPersonDisambiguation(person, peopleById, duplicateNames);
 

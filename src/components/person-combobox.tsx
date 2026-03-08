@@ -8,6 +8,8 @@ import {
 	getPersonSearchText,
 } from '../utils/person-labels';
 import { getAvatarUrl } from '../utils/avatar';
+import { useLanguage } from '../state/language-context';
+import { toUrdu } from '../utils/transliterate';
 
 export function PersonCombobox({
 	people,
@@ -24,6 +26,7 @@ export function PersonCombobox({
 }) {
 	const [query, setQuery] = useState('');
 	const [isOpen, setIsOpen] = useState(false);
+	const { isUrdu } = useLanguage();
 	const peopleById = useMemo(() => buildPeopleMap(people), [people]);
 	const duplicateNames = useMemo(() => buildDuplicateNameMap(people), [people]);
 	const getDisambiguation = (person: Person) =>
@@ -97,7 +100,18 @@ export function PersonCombobox({
 								/>
 								<div className='min-w-0'>
 									<div className='truncate text-sm font-medium text-gray-800'>
-										{getPersonFullName(p)}
+										{isUrdu ? (
+											<span
+												style={{
+													fontFamily: "'Noto Nastaliq Urdu', serif",
+													direction: 'rtl',
+												}}
+											>
+												{toUrdu(getPersonFullName(p))}
+											</span>
+										) : (
+											getPersonFullName(p)
+										)}
 									</div>
 									{getDisambiguation(p) && (
 										<div className='truncate text-xs text-gray-500'>
