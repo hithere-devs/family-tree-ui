@@ -1,12 +1,6 @@
 import { useState } from 'react';
-import {
-	changePassword,
-	requestPhoneOtp,
-	verifyPhoneOtp,
-} from '../services/api-client';
+import { changePassword } from '../services/api-client';
 import type { User } from '../types';
-import { OtpPasswordResetForm } from './otp-password-reset-form';
-import { PhoneNumberField } from './phone-number-field';
 
 interface ChangePasswordScreenProps {
 	/** If true, the user MUST change their password before continuing (no skip/back). */
@@ -19,17 +13,10 @@ interface ChangePasswordScreenProps {
 
 export function ChangePasswordScreen({
 	forced = false,
-	user,
+	user: _user,
 	onComplete,
 	onLogout,
 }: ChangePasswordScreenProps) {
-	const [phoneNumber, setPhoneNumber] = useState(user?.phoneNumber ?? '');
-	const [phoneVerified, setPhoneVerified] = useState(
-		Boolean(user?.phoneVerified),
-	);
-	const [otp, setOtp] = useState('');
-	const [otpSent, setOtpSent] = useState(false);
-	const [otpLoading, setOtpLoading] = useState(false);
 	const [currentPassword, setCurrentPassword] = useState('');
 	const [newPassword, setNewPassword] = useState('');
 	const [confirmPassword, setConfirmPassword] = useState('');
@@ -43,36 +30,6 @@ export function ChangePasswordScreen({
 		newPassword.trim().length >= 6 &&
 		passwordsMatch &&
 		!loading;
-
-	async function handleSendPhoneOtp() {
-		if (!phoneNumber.trim()) return;
-		setError('');
-		setOtpLoading(true);
-		try {
-			await requestPhoneOtp(phoneNumber.trim());
-			setOtpSent(true);
-		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Failed to send OTP');
-		} finally {
-			setOtpLoading(false);
-		}
-	}
-
-	async function handleVerifyPhoneOtp() {
-		if (!otp.trim()) return;
-		setError('');
-		setOtpLoading(true);
-		try {
-			await verifyPhoneOtp(otp.trim());
-			setPhoneVerified(true);
-			setSuccess(true);
-			setTimeout(() => setSuccess(false), 1200);
-		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Failed to verify phone');
-		} finally {
-			setOtpLoading(false);
-		}
-	}
 
 	async function handleSubmit(e: React.FormEvent) {
 		e.preventDefault();
@@ -99,82 +56,90 @@ export function ChangePasswordScreen({
 		return (
 			<div className='min-h-screen bg-linear-to-br from-lime-50 to-green-50 flex items-center justify-center p-4'>
 				<div className='w-full max-w-sm space-y-5'>
-					{!phoneVerified ? (
-						<div className='rounded-2xl bg-white p-6 shadow-xl space-y-4'>
-							<div className='text-center'>
-								<div className='mx-auto mb-4 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-lime-500 text-3xl text-white shadow-lg'>
-									📱
-								</div>
-								<h1 className='text-2xl font-bold text-gray-800'>
-									Verify Your Phone
-								</h1>
-								<p className='mt-1 text-sm text-gray-500'>
-									Before setting a new password, verify your phone with OTP.
-								</p>
+					<div className='rounded-2xl bg-white p-6 shadow-xl'>
+						<div className='mb-6 text-center'>
+							<div className='mx-auto mb-4 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-lime-500 text-3xl text-white shadow-lg'>
+								🔒
 							</div>
+							<h1 className='text-2xl font-bold text-gray-800'>
+								Set New Password
+							</h1>
+							<p className='mt-1 text-sm text-gray-500'>
+								Use your temporary password once, or ask an admin for a fresh
+								setup link.
+							</p>
+						</div>
 
+						<form onSubmit={handleSubmit} className='space-y-5'>
 							{error && (
-								<div className='rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600'>
+								<div className='bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3 border border-red-100'>
 									{error}
 								</div>
 							)}
 
+							{success && (
+								<div className='bg-green-50 text-green-700 text-sm rounded-lg px-4 py-3 border border-green-200'>
+									Password changed successfully! Redirecting…
+								</div>
+							)}
+
 							<div>
-								<label className='mb-1 block text-sm font-medium text-gray-600'>
-									Phone Number
+								<label className='block text-sm font-medium text-gray-600 mb-1'>
+									Current Password
 								</label>
-								<PhoneNumberField
-									value={phoneNumber}
-									onChange={setPhoneNumber}
+								<input
+									type='password'
+									value={currentPassword}
+									onChange={(e) => setCurrentPassword(e.target.value)}
+									placeholder='Enter current password'
+									autoFocus
+									disabled={success}
+									className='w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-lime-500 focus:border-transparent text-sm disabled:opacity-50'
 								/>
 							</div>
 
-							<button
-								type='button'
-								onClick={handleSendPhoneOtp}
-								disabled={!phoneNumber.trim() || otpLoading}
-								className='w-full rounded-lg bg-lime-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-lime-600 disabled:cursor-not-allowed disabled:opacity-50'
-							>
-								{otpLoading && !otpSent
-									? 'Sending…'
-									: otpSent
-										? 'Resend OTP'
-										: 'Send OTP'}
-							</button>
+							<div>
+								<label className='block text-sm font-medium text-gray-600 mb-1'>
+									New Password
+								</label>
+								<input
+									type='password'
+									value={newPassword}
+									onChange={(e) => setNewPassword(e.target.value)}
+									placeholder='At least 6 characters'
+									disabled={success}
+									className='w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-lime-500 focus:border-transparent text-sm disabled:opacity-50'
+								/>
+							</div>
 
-							{otpSent && (
-								<>
-									<input
-										type='text'
-										value={otp}
-										onChange={(e) => setOtp(e.target.value)}
-										placeholder='Enter OTP'
-										className='w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm tracking-[0.3em] focus:border-lime-500 focus:outline-none focus:ring-2 focus:ring-lime-500'
-									/>
-									<button
-										type='button'
-										onClick={handleVerifyPhoneOtp}
-										disabled={!otp.trim() || otpLoading}
-										className='w-full rounded-lg bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50'
-									>
-										{otpLoading ? 'Verifying…' : 'Verify Phone'}
-									</button>
-								</>
-							)}
-						</div>
-					) : (
-						<div className='rounded-2xl bg-white p-6 shadow-xl'>
-							<OtpPasswordResetForm
-								title='Set New Password'
-								description='Your phone is verified. Request an OTP and set a new password.'
-								defaultUsername={user?.username ?? ''}
-								defaultPhoneNumber={phoneNumber}
-								hideUsername
-								onSuccess={onComplete}
-								submitLabel='Finish Setup'
-							/>
-						</div>
-					)}
+							<div>
+								<label className='block text-sm font-medium text-gray-600 mb-1'>
+									Confirm New Password
+								</label>
+								<input
+									type='password'
+									value={confirmPassword}
+									onChange={(e) => setConfirmPassword(e.target.value)}
+									placeholder='Re-enter new password'
+									disabled={success}
+									className='w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-lime-500 focus:border-transparent text-sm disabled:opacity-50'
+								/>
+								{confirmPassword && !passwordsMatch && (
+									<p className='text-xs text-red-500 mt-1'>
+										Passwords do not match.
+									</p>
+								)}
+							</div>
+
+							<button
+								type='submit'
+								disabled={!canSubmit || success}
+								className='w-full py-2.5 bg-lime-500 text-white rounded-lg text-sm font-semibold hover:bg-lime-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md'
+							>
+								{loading ? 'Changing…' : success ? 'Done ✓' : 'Set Password'}
+							</button>
+						</form>
+					</div>
 
 					{onLogout && (
 						<button

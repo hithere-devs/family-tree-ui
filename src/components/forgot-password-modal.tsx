@@ -1,5 +1,3 @@
-import { OtpPasswordResetForm } from './otp-password-reset-form';
-
 export function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
 	return (
 		<div
@@ -10,12 +8,25 @@ export function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
 				className='w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl'
 				onClick={(e) => e.stopPropagation()}
 			>
-				<OtpPasswordResetForm
-					title='Forgot Password'
-					description='Use your username and verified phone number to reset the password with OTP.'
-					onSuccess={onClose}
-					submitLabel='Set New Password'
-				/>
+				<div className='space-y-4'>
+					<div className='text-center'>
+						<div className='mx-auto mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-500 text-2xl text-white shadow-lg'>
+							🔗
+						</div>
+						<h2 className='text-xl font-bold text-gray-800'>
+							Password Reset Links
+						</h2>
+						<p className='mt-2 text-sm text-gray-500'>
+							Ask an admin to generate a 10-minute reset link for your account.
+							Open that link to set a new password.
+						</p>
+					</div>
+
+					<div className='rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-700'>
+						If this is your first login, the admin can generate a setup link the
+						same way.
+					</div>
+				</div>
 				<button
 					type='button'
 					onClick={onClose}

@@ -7,6 +7,7 @@ import { AddPersonModal } from './components/add-person-modal';
 import { ManageRelationshipsModal } from './components/manage-relationships-modal';
 import { LoginScreen } from './components/login-screen';
 import { ChangePasswordScreen } from './components/change-password-screen';
+import { PasswordLinkScreen } from './components/password-link-screen';
 import { MobileContainer } from './components/layout/mobile-container';
 import { BottomNav } from './components/layout/bottom-nav';
 import { ProfileScreen } from './components/profile/profile-screen';
@@ -16,6 +17,7 @@ import {
 	setToken,
 	getMe,
 	type LoginResponse,
+	type PasswordLinkPurpose,
 } from './services/api-client';
 import { LanguageProvider } from './state/language-context';
 
@@ -160,9 +162,22 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
 function App() {
 	const [user, setUser] = useState<User | null>(null);
 	const [checking, setChecking] = useState(true);
+	const [credentialLink, setCredentialLink] = useState(() => {
+		const params = new URLSearchParams(window.location.search);
+		return {
+			token: params.get('credentialToken'),
+			username: params.get('username') ?? '',
+			purpose: params.get('purpose') as PasswordLinkPurpose | null,
+		};
+	});
 
 	// On mount: if we have a token, try to restore session
 	useEffect(() => {
+		if (credentialLink.token) {
+			setChecking(false);
+			return;
+		}
+
 		const token = getToken();
 		if (!token) {
 			setChecking(false);
@@ -172,7 +187,16 @@ function App() {
 			.then((u) => setUser(u))
 			.catch(() => setToken(null))
 			.finally(() => setChecking(false));
-	}, []);
+	}, [credentialLink.token]);
+
+	function clearCredentialLink() {
+		const url = new URL(window.location.href);
+		url.searchParams.delete('credentialToken');
+		url.searchParams.delete('username');
+		url.searchParams.delete('purpose');
+		window.history.replaceState({}, '', `${url.pathname}${url.search}`);
+		setCredentialLink({ token: null, username: '', purpose: null });
+	}
 
 	function handleLogin(data: LoginResponse) {
 		setUser(data.user);
@@ -188,6 +212,17 @@ function App() {
 			<div className='w-full h-screen flex items-center justify-center bg-gray-50'>
 				<div className='inline-block w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin' />
 			</div>
+		);
+	}
+
+	if (credentialLink.token) {
+		return (
+			<PasswordLinkScreen
+				token={credentialLink.token}
+				usernameHint={credentialLink.username}
+				purposeHint={credentialLink.purpose}
+				onComplete={clearCredentialLink}
+			/>
 		);
 	}
 
@@ -209,7 +244,6 @@ function App() {
 						setUser({
 							...user,
 							mustChangePassword: false,
-							phoneVerified: true,
 						});
 					}
 				}}

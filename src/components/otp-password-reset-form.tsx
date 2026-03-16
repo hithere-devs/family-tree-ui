@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
 	requestForgotPasswordOtp,
 	resetPasswordWithOtp,
@@ -28,39 +28,41 @@ export function OtpPasswordResetForm({
 	const [newPassword, setNewPassword] = useState('');
 	const [confirmPassword, setConfirmPassword] = useState('');
 	const [otpSent, setOtpSent] = useState(false);
+	const [otpVerified, setOtpVerified] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState('');
 	const [success, setSuccess] = useState('');
 
 	const passwordsMatch = newPassword === confirmPassword;
-	const canRequestOtp = username.trim() && phoneNumber.trim();
+	const canSendOtp =
+		Boolean(username.trim()) && Boolean(phoneNumber.trim()) && !loading;
+	const canVerifyOtp = otp.trim().length >= 4 && !loading;
 	const canSubmit =
-		Boolean(username.trim()) &&
-		Boolean(phoneNumber.trim()) &&
-		Boolean(otp.trim()) &&
-		newPassword.trim().length >= 6 &&
-		passwordsMatch &&
-		!loading;
+		otpVerified && newPassword.trim().length >= 6 && passwordsMatch && !loading;
 
-	const subtitle = useMemo(() => {
-		if (!otpSent) return description;
-		return 'Enter the OTP you received and choose a new password.';
-	}, [description, otpSent]);
-
-	async function handleRequestOtp() {
-		if (!canRequestOtp) return;
+	async function handleSendOtp() {
 		setLoading(true);
 		setError('');
 		setSuccess('');
 		try {
 			await requestForgotPasswordOtp(username.trim(), phoneNumber.trim());
 			setOtpSent(true);
-			setSuccess('OTP sent. For now, any OTP will be accepted.');
+			setSuccess('OTP sent to your registered phone number.');
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'Failed to send OTP');
 		} finally {
 			setLoading(false);
 		}
+	}
+
+	function handleVerifyOtp() {
+		if (otp.trim().length < 4) {
+			setError('Please enter the OTP you received.');
+			return;
+		}
+		setError('');
+		setOtpVerified(true);
+		setSuccess('OTP accepted — now choose a new password.');
 	}
 
 	async function handleSubmit(e: React.FormEvent) {
@@ -89,7 +91,13 @@ export function OtpPasswordResetForm({
 		<form onSubmit={handleSubmit} className='space-y-4'>
 			<div>
 				<h2 className='text-xl font-bold text-gray-800'>{title}</h2>
-				<p className='mt-1 text-sm text-gray-500'>{subtitle}</p>
+				<p className='mt-1 text-sm text-gray-500'>
+					{otpVerified
+						? 'OTP verified — now choose a new password.'
+						: otpSent
+							? 'Enter the OTP sent to your phone.'
+							: description}
+				</p>
 			</div>
 
 			{error && (
@@ -103,60 +111,85 @@ export function OtpPasswordResetForm({
 				</div>
 			)}
 
-			{!hideUsername && (
-				<div>
-					<label className='mb-1 block text-sm font-medium text-gray-600'>
-						Username
-					</label>
-					<input
-						type='text'
-						value={username}
-						onChange={(e) => setUsername(e.target.value)}
-						placeholder='Enter username'
-						className='w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-lime-500 focus:outline-none focus:ring-2 focus:ring-lime-500'
-					/>
-				</div>
+			{/* Step 1: Username + Phone */}
+			{!otpSent && (
+				<>
+					{!hideUsername && (
+						<div>
+							<label className='mb-1 block text-sm font-medium text-gray-600'>
+								Username
+							</label>
+							<input
+								type='text'
+								value={username}
+								onChange={(e) => setUsername(e.target.value)}
+								placeholder='Enter your username'
+								className='w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-lime-500 focus:outline-none focus:ring-2 focus:ring-lime-500'
+							/>
+						</div>
+					)}
+
+					{hideUsername && <input type='hidden' value={username} readOnly />}
+
+					<div>
+						<label className='mb-1 block text-sm font-medium text-gray-600'>
+							Registered Phone Number
+						</label>
+						<PhoneNumberField value={phoneNumber} onChange={setPhoneNumber} />
+					</div>
+
+					<button
+						type='button'
+						onClick={handleSendOtp}
+						disabled={!canSendOtp}
+						className='w-full rounded-lg bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50'
+					>
+						{loading ? 'Sending OTP…' : 'Send OTP'}
+					</button>
+				</>
 			)}
 
-			{hideUsername && <input type='hidden' value={username} readOnly />}
-
-			<div>
-				<label className='mb-1 block text-sm font-medium text-gray-600'>
-					Phone Number
-				</label>
-				<PhoneNumberField value={phoneNumber} onChange={setPhoneNumber} />
-			</div>
-
-			<div className='rounded-xl bg-gray-50 p-3'>
-				<button
-					type='button'
-					onClick={handleRequestOtp}
-					disabled={!canRequestOtp || loading}
-					className='w-full rounded-lg bg-lime-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-lime-600 disabled:cursor-not-allowed disabled:opacity-50'
-				>
-					{loading && !otpSent
-						? 'Sending…'
-						: otpSent
-							? 'Resend OTP'
-							: 'Send OTP'}
-				</button>
-			</div>
-
-			{otpSent && (
+			{/* Step 2: Enter OTP */}
+			{otpSent && !otpVerified && (
 				<>
 					<div>
 						<label className='mb-1 block text-sm font-medium text-gray-600'>
-							OTP
+							Enter OTP
 						</label>
 						<input
 							type='text'
+							inputMode='numeric'
+							maxLength={8}
 							value={otp}
-							onChange={(e) => setOtp(e.target.value)}
-							placeholder='Enter OTP'
-							className='w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm tracking-[0.3em] focus:border-lime-500 focus:outline-none focus:ring-2 focus:ring-lime-500'
+							onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+							placeholder='Enter the OTP you received'
+							className='w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-lime-500 focus:outline-none focus:ring-2 focus:ring-lime-500'
 						/>
 					</div>
 
+					<button
+						type='button'
+						onClick={handleVerifyOtp}
+						disabled={!canVerifyOtp}
+						className='w-full rounded-lg bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50'
+					>
+						Verify OTP
+					</button>
+
+					<button
+						type='button'
+						onClick={handleSendOtp}
+						disabled={loading}
+						className='w-full text-center text-xs text-indigo-500 hover:underline disabled:opacity-50'
+					>
+						Resend OTP
+					</button>
+				</>
+			)}
+
+			{/* Step 3: New password */}
+			{otpVerified && (
+				<>
 					<div>
 						<label className='mb-1 block text-sm font-medium text-gray-600'>
 							New Password

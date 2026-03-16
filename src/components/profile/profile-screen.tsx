@@ -15,16 +15,15 @@ import {
 	Twitter,
 	Linkedin,
 	ShieldCheck,
-	ShieldAlert,
 	ExternalLink,
-	Send,
+	Copy,
+	KeyRound,
 } from 'lucide-react';
 import { useFamilyTree } from '../../state/family-tree-context';
 import { getAvatarUrl } from '../../utils/avatar';
 import { getRelationship } from '../../utils/relationship';
 import { canEdit } from '../../state/permissions';
 import { formatBirthday } from '../../utils/birthdate';
-import { PhoneNumberField } from '../phone-number-field';
 import * as api from '../../services/api-client';
 import { useLanguage } from '../../state/language-context';
 import { toUrdu } from '../../utils/transliterate';
@@ -65,15 +64,13 @@ export const ProfileScreen = () => {
 	const { isUrdu } = useLanguage();
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const [deleting, setDeleting] = useState(false);
-
-	// Phone verification inline state
-	const [showVerifyPhone, setShowVerifyPhone] = useState(false);
-	const [verifyPhoneNumber, setVerifyPhoneNumber] = useState('');
-	const [otpSent, setOtpSent] = useState(false);
-	const [otp, setOtp] = useState('');
-	const [phoneLoading, setPhoneLoading] = useState(false);
-	const [phoneError, setPhoneError] = useState('');
-	const [phoneSuccess, setPhoneSuccess] = useState('');
+	const [linkLoading, setLinkLoading] = useState<
+		'setup-password' | 'reset-password' | null
+	>(null);
+	const [linkError, setLinkError] = useState('');
+	const [linkSuccess, setLinkSuccess] = useState('');
+	const [generatedLink, setGeneratedLink] =
+		useState<api.GeneratedPasswordLinkResponse | null>(null);
 
 	const personId = state.selectedPersonId || state.currentUser?.personId || '';
 	const person = state.people[personId];
@@ -90,40 +87,38 @@ export const ProfileScreen = () => {
 
 	const isSelf = currentUser?.personId === person.id;
 
-	async function handleSendOtp() {
-		if (!verifyPhoneNumber.trim()) return;
-		setPhoneLoading(true);
-		setPhoneError('');
-		setPhoneSuccess('');
+	async function handleGeneratePasswordLink(
+		purpose: 'setup-password' | 'reset-password',
+	) {
+		setLinkLoading(purpose);
+		setLinkError('');
+		setLinkSuccess('');
 		try {
-			await api.requestPhoneOtp(verifyPhoneNumber.trim());
-			setOtpSent(true);
-			setPhoneSuccess('OTP sent! Enter the code below.');
+			const result = await api.generatePasswordLink(person.id, purpose);
+			setGeneratedLink(result);
+			setLinkSuccess(
+				`${purpose === 'setup-password' ? 'Setup' : 'Reset'} link generated for ${result.username}.`,
+			);
 		} catch (err) {
-			setPhoneError(err instanceof Error ? err.message : 'Failed to send OTP');
+			setLinkError(
+				err instanceof Error
+					? err.message
+					: 'Failed to generate password link.',
+			);
 		} finally {
-			setPhoneLoading(false);
+			setLinkLoading(null);
 		}
 	}
 
-	async function handleVerifyOtp() {
-		if (!otp.trim()) return;
-		setPhoneLoading(true);
-		setPhoneError('');
-		setPhoneSuccess('');
+	async function handleCopyLink() {
+		if (!generatedLink) return;
 		try {
-			await api.verifyPhoneOtp(otp.trim());
-			setPhoneSuccess('Phone verified!');
-			setShowVerifyPhone(false);
-			setOtpSent(false);
-			setOtp('');
-			await refreshTree();
-		} catch (err) {
-			setPhoneError(
-				err instanceof Error ? err.message : 'Failed to verify phone',
+			await navigator.clipboard.writeText(generatedLink.link);
+			setLinkSuccess('Password link copied to clipboard.');
+		} catch {
+			setLinkError(
+				'Failed to copy the link. Copy it manually from the field below.',
 			);
-		} finally {
-			setPhoneLoading(false);
 		}
 	}
 
@@ -270,106 +265,17 @@ export const ProfileScreen = () => {
 								<Phone className='mr-2 text-lime-500' size={18} />
 								{isUrdu ? 'فون نمبر' : 'Phone Number'}
 							</span>
-							{person.phoneNumber &&
-								(person.phoneVerified ? (
-									<span className='flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700'>
-										<ShieldCheck size={12} />{' '}
-										{isUrdu ? 'تصدیق شدہ' : 'Verified'}
-									</span>
-								) : (
-									<span className='flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700'>
-										<ShieldAlert size={12} />{' '}
-										{isUrdu ? 'غیر تصدیق شدہ' : 'Unverified'}
-									</span>
-								))}
+							{person.phoneNumber && person.phoneVerified ? (
+								<span className='flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700'>
+									<ShieldCheck size={12} /> {isUrdu ? 'تصدیق شدہ' : 'Verified'}
+								</span>
+							) : null}
 						</div>
 
 						<p className='text-sm text-gray-500'>
 							{person.phoneNumber ||
 								(isUrdu ? 'ابھی شامل نہیں' : 'Not added yet')}
 						</p>
-
-						{/* Verify phone inline — only for own profile + not yet verified */}
-						{isSelf && person.phoneNumber && !person.phoneVerified && (
-							<>
-								{!showVerifyPhone ? (
-									<button
-										onClick={() => {
-											setVerifyPhoneNumber(person.phoneNumber ?? '');
-											setShowVerifyPhone(true);
-										}}
-										className='flex items-center gap-2 rounded-lg bg-lime-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-lime-600'
-									>
-										<Send size={14} /> Verify Now
-									</button>
-								) : (
-									<div className='space-y-3 rounded-xl bg-gray-50 p-4'>
-										{phoneError && (
-											<div className='rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600'>
-												{phoneError}
-											</div>
-										)}
-										{phoneSuccess && (
-											<div className='rounded-lg border border-green-100 bg-green-50 px-3 py-2 text-xs text-green-700'>
-												{phoneSuccess}
-											</div>
-										)}
-
-										<PhoneNumberField
-											value={verifyPhoneNumber}
-											onChange={setVerifyPhoneNumber}
-										/>
-
-										<button
-											type='button'
-											onClick={handleSendOtp}
-											disabled={!verifyPhoneNumber.trim() || phoneLoading}
-											className='w-full rounded-lg bg-lime-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-lime-600 disabled:cursor-not-allowed disabled:opacity-50'
-										>
-											{phoneLoading && !otpSent
-												? 'Sending…'
-												: otpSent
-													? 'Resend OTP'
-													: 'Send OTP'}
-										</button>
-
-										{otpSent && (
-											<>
-												<input
-													type='text'
-													value={otp}
-													onChange={(e) => setOtp(e.target.value)}
-													placeholder='Enter OTP'
-													className='w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm tracking-[0.3em] focus:border-lime-500 focus:outline-none focus:ring-2 focus:ring-lime-500'
-												/>
-												<button
-													type='button'
-													onClick={handleVerifyOtp}
-													disabled={!otp.trim() || phoneLoading}
-													className='w-full rounded-lg bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50'
-												>
-													{phoneLoading ? 'Verifying…' : 'Verify Phone'}
-												</button>
-											</>
-										)}
-
-										<button
-											type='button'
-											onClick={() => {
-												setShowVerifyPhone(false);
-												setOtpSent(false);
-												setOtp('');
-												setPhoneError('');
-												setPhoneSuccess('');
-											}}
-											className='w-full text-xs text-gray-500 hover:text-gray-700'
-										>
-											Cancel
-										</button>
-									</div>
-								)}
-							</>
-						)}
 					</div>
 				)}
 
@@ -413,6 +319,92 @@ export const ProfileScreen = () => {
 						<h3 className='text-sm font-bold text-amber-600 mb-4 uppercase tracking-wider'>
 							Admin Utilities (Relations)
 						</h3>
+
+						<div className='rounded-2xl border border-indigo-100 bg-indigo-50 p-4 space-y-3'>
+							<div className='flex items-start gap-3'>
+								<div className='rounded-xl bg-indigo-500 p-2 text-white'>
+									<KeyRound size={16} />
+								</div>
+								<div>
+									<h4 className='text-sm font-semibold text-indigo-900'>
+										Account Links
+									</h4>
+									<p className='mt-1 text-xs text-indigo-800/80'>
+										Generate a 10-minute setup or reset link for{' '}
+										{person.firstName}.
+									</p>
+								</div>
+							</div>
+
+							<div className='grid grid-cols-2 gap-3'>
+								<button
+									onClick={() => handleGeneratePasswordLink('setup-password')}
+									disabled={Boolean(linkLoading)}
+									className='rounded-xl bg-indigo-600 px-3 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-indigo-700 disabled:opacity-50'
+								>
+									{linkLoading === 'setup-password'
+										? 'Generating…'
+										: 'Setup Link'}
+								</button>
+								<button
+									onClick={() => handleGeneratePasswordLink('reset-password')}
+									disabled={Boolean(linkLoading)}
+									className='rounded-xl bg-white px-3 py-2.5 text-xs font-semibold text-indigo-700 border border-indigo-200 transition-colors hover:bg-indigo-100 disabled:opacity-50'
+								>
+									{linkLoading === 'reset-password'
+										? 'Generating…'
+										: 'Reset Link'}
+								</button>
+							</div>
+
+							{linkError && (
+								<div className='rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600'>
+									{linkError}
+								</div>
+							)}
+
+							{linkSuccess && (
+								<div className='rounded-lg border border-green-100 bg-green-50 px-3 py-2 text-xs text-green-700'>
+									{linkSuccess}
+								</div>
+							)}
+
+							{generatedLink && (
+								<div className='space-y-2 rounded-xl border border-indigo-100 bg-white p-3'>
+									<div className='text-xs text-gray-500'>
+										Username:{' '}
+										<span className='font-semibold text-gray-700'>
+											{generatedLink.username}
+										</span>{' '}
+										• valid until{' '}
+										{new Date(generatedLink.expiresAt).toLocaleTimeString()}
+									</div>
+									<input
+										type='text'
+										readOnly
+										value={generatedLink.link}
+										className='w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600'
+									/>
+									<div className='flex gap-2'>
+										<button
+											type='button'
+											onClick={handleCopyLink}
+											className='flex flex-1 items-center justify-center gap-2 rounded-lg bg-gray-100 px-3 py-2 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-200'
+										>
+											<Copy size={14} /> Copy
+										</button>
+										<a
+											href={generatedLink.link}
+											target='_blank'
+											rel='noopener noreferrer'
+											className='flex flex-1 items-center justify-center gap-2 rounded-lg bg-indigo-100 px-3 py-2 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-200'
+										>
+											<ExternalLink size={14} /> Open
+										</a>
+									</div>
+								</div>
+							)}
+						</div>
 
 						<div className='grid grid-cols-2 gap-3'>
 							{person.parentIds.length < 2 && (

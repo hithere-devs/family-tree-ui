@@ -9,6 +9,7 @@ export interface NodePosition {
 const H_GAP = 320; // minimum gap between the last person of one unit and the first of the next
 const V_GAP = 600; // vertical center-to-center
 const COUPLE_GAP = 180; // gap between spouses within a couple
+const MIN_VERT_GAP = 20; // minimum horizontal gap between vertical connector lines from different families
 
 /**
  * Compute a flat array of node positions for the tree canvas.
@@ -183,6 +184,16 @@ export function computeTreeLayout(
             layoutRow(rows.get(g)!, g * V_GAP, people, posMap, hintMap, positions);
         }
     }
+
+    /* ---- Step 5.5: nudge units whose vertical connectors would overlap ---- */
+    /*
+     * Vertical connector lines are drawn at:
+     *   - junction X (midpoint of parents' X) — the long vertical from parents to children bar
+     *   - each child's X — the short vertical drop from the children bar to the child node
+     * Two verticals from DIFFERENT families at the same X overlap visually.
+     * We detect these and shift the involved family's children apart.
+     */
+    nudgeOverlappingVerticals(people, posMap, positions);
 
     /* ---- Step 6: shift everything so center person is at (0, 0) ---- */
 
@@ -439,6 +450,157 @@ function layoutRow(
             const x = startX + j * COUPLE_GAP;
             posMap.set(unit[j], { x, y });
             positions.push({ personId: unit[j], x, y });
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Post-layout: nudge units whose vertical connectors overlap         */
+/* ------------------------------------------------------------------ */
+
+interface VerticalLine {
+    x: number;
+    familyKey: string;
+    /** Person IDs in this family that should be shifted together */
+    memberIds: string[];
+    /** Y range of the vertical (for overlap detection) */
+    yTop: number;
+    yBot: number;
+}
+
+function nudgeOverlappingVerticals(
+    people: Record<string, Person>,
+    posMap: Map<string, { x: number; y: number }>,
+    positions: NodePosition[],
+) {
+    // Build families (same as tree-canvas does)
+    const familyMap = new Map<string, { parentIds: string[]; childIds: string[] }>();
+    for (const person of Object.values(people)) {
+        if (person.parentIds.length > 0 && posMap.has(person.id)) {
+            const key = [...person.parentIds].sort().join(',');
+            if (!familyMap.has(key)) {
+                familyMap.set(key, { parentIds: [...person.parentIds].sort(), childIds: [] });
+            }
+            familyMap.get(key)!.childIds.push(person.id);
+        }
+    }
+
+    // Collect all vertical connector X positions
+    const verticals: VerticalLine[] = [];
+
+    for (const [familyKey, family] of familyMap) {
+        const parentPositions = family.parentIds
+            .filter((pid) => posMap.has(pid))
+            .map((pid) => ({ id: pid, ...posMap.get(pid)! }));
+        if (parentPositions.length === 0) continue;
+
+        const childPositions = family.childIds
+            .filter((cid) => posMap.has(cid))
+            .map((cid) => ({ id: cid, ...posMap.get(cid)! }));
+        if (childPositions.length === 0) continue;
+
+        const parentBottomY = parentPositions[0].y;
+        const childTopY = Math.min(...childPositions.map((c) => c.y));
+
+        // Junction vertical (midpoint of parents → children bar)
+        const junctionX = parentPositions.reduce((s, p) => s + p.x, 0) / parentPositions.length;
+        const allMemberIds = [...family.parentIds, ...family.childIds].filter((id) => posMap.has(id));
+
+        verticals.push({
+            x: junctionX,
+            familyKey,
+            memberIds: allMemberIds,
+            yTop: parentBottomY,
+            yBot: childTopY,
+        });
+
+        // Each child's vertical drop
+        for (const child of childPositions) {
+            verticals.push({
+                x: child.x,
+                familyKey,
+                memberIds: allMemberIds,
+                yTop: parentBottomY,
+                yBot: childTopY,
+            });
+        }
+    }
+
+    // Find pairs of verticals from DIFFERENT families that overlap in X and Y
+    // Sort by X so we only check neighbours
+    verticals.sort((a, b) => a.x - b.x);
+
+    // Track which families need a nudge and by how much
+    const familyNudge = new Map<string, number>(); // familyKey → cumulative X shift
+
+    for (let i = 0; i < verticals.length - 1; i++) {
+        const a = verticals[i];
+        const b = verticals[i + 1];
+
+        // Same family — skip
+        if (a.familyKey === b.familyKey) continue;
+
+        const gap = Math.abs(b.x - a.x);
+        if (gap >= MIN_VERT_GAP) continue;
+
+        // Check vertical overlap (Y ranges must intersect)
+        const yOverlap = a.yTop < b.yBot && b.yTop < a.yBot;
+        if (!yOverlap) continue;
+
+        // Need to push them apart
+        const needed = MIN_VERT_GAP - gap;
+        const halfNudge = Math.ceil(needed / 2);
+
+        // Decide which family to nudge: nudge the one with fewer members (less disruption)
+        const aMembers = new Set(a.memberIds);
+        const bMembers = new Set(b.memberIds);
+
+        // Push the right one further right, left one further left
+        if (a.x <= b.x) {
+            // a stays or shifts left, b shifts right
+            const existingA = familyNudge.get(a.familyKey) ?? 0;
+            const existingB = familyNudge.get(b.familyKey) ?? 0;
+            if (aMembers.size <= bMembers.size) {
+                familyNudge.set(a.familyKey, existingA - halfNudge);
+                familyNudge.set(b.familyKey, existingB + halfNudge);
+            } else {
+                familyNudge.set(a.familyKey, existingA - halfNudge);
+                familyNudge.set(b.familyKey, existingB + halfNudge);
+            }
+        } else {
+            const existingA = familyNudge.get(a.familyKey) ?? 0;
+            const existingB = familyNudge.get(b.familyKey) ?? 0;
+            familyNudge.set(b.familyKey, existingB - halfNudge);
+            familyNudge.set(a.familyKey, existingA + halfNudge);
+        }
+    }
+
+    // Apply nudges: shift all members of nudged families
+    if (familyNudge.size === 0) return;
+
+    const personNudge = new Map<string, number>(); // personId → max abs nudge to apply
+    for (const [familyKey, nudge] of familyNudge) {
+        if (nudge === 0) continue;
+        const family = familyMap.get(familyKey);
+        if (!family) continue;
+
+        // Only nudge the children (shifting parents could break their own bracket)
+        for (const cid of family.childIds) {
+            const existing = personNudge.get(cid) ?? 0;
+            // Take the larger absolute nudge if multiple families affect same person
+            if (Math.abs(nudge) > Math.abs(existing)) {
+                personNudge.set(cid, nudge);
+            }
+        }
+    }
+
+    // Apply the shifts
+    for (const pos of positions) {
+        const nudge = personNudge.get(pos.personId);
+        if (nudge) {
+            pos.x += nudge;
+            const mapEntry = posMap.get(pos.personId);
+            if (mapEntry) mapEntry.x += nudge;
         }
     }
 }

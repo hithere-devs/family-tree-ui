@@ -1,5 +1,5 @@
-// const API_BASE = 'http://localhost:8080/api';
-const API_BASE = 'https://api.family.hitheredevs.com/api';
+const API_BASE = 'http://localhost:8080/api';
+// const API_BASE = 'https://api.family.hitheredevs.com/api';
 
 import type { Person, SocialLink } from '../types';
 
@@ -83,44 +83,48 @@ export async function changePassword(
     });
 }
 
-export async function requestPhoneOtp(
-    phoneNumber: string,
-): Promise<{ message: string; phoneNumber: string }> {
-    return apiFetch('/auth/phone-otp/request', {
-        method: 'POST',
-        body: JSON.stringify({ phoneNumber }),
-    });
+export type PasswordLinkPurpose = 'setup-password' | 'reset-password';
+
+export interface PasswordLinkDetailsResponse {
+    username: string;
+    purpose: PasswordLinkPurpose;
+    expiresAt: string;
 }
 
-export async function verifyPhoneOtp(
-    otp: string,
-): Promise<{ message: string; user: AuthUser }> {
-    return apiFetch('/auth/phone-otp/verify', {
-        method: 'POST',
-        body: JSON.stringify({ otp }),
-    });
+export interface GeneratedPasswordLinkResponse extends PasswordLinkDetailsResponse {
+    link: string;
 }
 
-export async function requestForgotPasswordOtp(
-    username: string,
+export async function getPasswordLinkDetails(
+    token: string,
+): Promise<PasswordLinkDetailsResponse> {
+    return apiFetch<PasswordLinkDetailsResponse>(
+        `/auth/password-link?token=${encodeURIComponent(token)}`,
+    );
+}
+
+export async function consumePasswordLink(
+    token: string,
+    newPassword: string,
     phoneNumber: string,
 ): Promise<{ message: string }> {
-    return apiFetch('/auth/forgot-password/request', {
+    return apiFetch<{ message: string }>('/auth/password-link/consume', {
         method: 'POST',
-        body: JSON.stringify({ username, phoneNumber }),
+        body: JSON.stringify({ token, newPassword, phoneNumber }),
     });
 }
 
-export async function resetPasswordWithOtp(data: {
-    username: string;
-    phoneNumber: string;
-    otp: string;
-    newPassword: string;
-}): Promise<{ message: string }> {
-    return apiFetch('/auth/forgot-password/reset', {
-        method: 'POST',
-        body: JSON.stringify(data),
-    });
+export async function generatePasswordLink(
+    personId: string,
+    purpose: PasswordLinkPurpose,
+): Promise<GeneratedPasswordLinkResponse> {
+    return apiFetch<GeneratedPasswordLinkResponse>(
+        `/admin/persons/${personId}/password-link`,
+        {
+            method: 'POST',
+            body: JSON.stringify({ purpose }),
+        },
+    );
 }
 
 export interface TreeResponse {

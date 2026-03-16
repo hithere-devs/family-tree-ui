@@ -14,7 +14,6 @@ import {
 	Trash2,
 	Phone,
 	ShieldCheck,
-	ShieldAlert,
 } from 'lucide-react';
 
 const SOCIAL_PLATFORMS: {
@@ -410,10 +409,6 @@ export function EditPerson() {
 									<span className='flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700'>
 										<ShieldCheck size={12} /> Verified
 									</span>
-								) : phoneNumber ? (
-									<span className='flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700'>
-										<ShieldAlert size={12} /> Unverified
-									</span>
 								) : null}
 							</div>
 							<PhoneNumberField
@@ -422,7 +417,7 @@ export function EditPerson() {
 								placeholder='Enter your phone number'
 							/>
 							<p className='mt-2 text-xs text-gray-400'>
-								Changing your number will require re-verification via OTP.
+								This number is stored on your profile for contact purposes.
 							</p>
 						</div>
 					)}
