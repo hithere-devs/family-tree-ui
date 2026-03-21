@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useFamilyTree } from '../state/family-tree-context';
+import { useState, useEffect, useRef } from 'react';
+import { useFamilyTree, usePersonDetails } from '../state/family-tree-context';
 import type { Gender, SocialLink, SocialLinkType } from '../types';
 import * as api from '../services/api-client';
 import { PersonCombobox } from './person-combobox';
@@ -51,9 +51,7 @@ const SOCIAL_PLATFORMS: {
 export function EditPerson() {
 	const { state, dispatch, refreshTree } = useFamilyTree();
 
-	const person = state.editingPersonId
-		? state.people[state.editingPersonId]
-		: null;
+	const { person } = usePersonDetails(state.editingPersonId);
 
 	const [firstName, setFirstName] = useState(person?.firstName ?? '');
 	const [lastName, setLastName] = useState(person?.lastName ?? '');
@@ -69,6 +67,20 @@ export function EditPerson() {
 	const [socialLinks, setSocialLinks] = useState<SocialLink[]>(
 		person?.socialLinks ?? [],
 	);
+
+	// When full details arrive, backfill form fields that were empty
+	const detailsSyncedRef = useRef(false);
+	useEffect(() => {
+		if (!person || detailsSyncedRef.current) return;
+		if (person.bio === undefined && person.phoneNumber === undefined) return;
+		detailsSyncedRef.current = true;
+		setBio(person.bio ?? '');
+		setLocation(person.location ?? '');
+		setBirthDate(person.birthDate ?? '');
+		setDeathYear(person.deathYear?.toString() ?? '');
+		setPhoneNumber(person.phoneNumber ?? '');
+		setSocialLinks(person.socialLinks ?? []);
+	}, [person]);
 	const [addParentId, setAddParentId] = useState('');
 	const [addSpouseId, setAddSpouseId] = useState('');
 	const [saving, setSaving] = useState(false);

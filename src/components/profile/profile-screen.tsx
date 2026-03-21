@@ -19,7 +19,10 @@ import {
 	Copy,
 	KeyRound,
 } from 'lucide-react';
-import { useFamilyTree } from '../../state/family-tree-context';
+import {
+	useFamilyTree,
+	usePersonDetails,
+} from '../../state/family-tree-context';
 import { getAvatarUrl } from '../../utils/avatar';
 import { getRelationship } from '../../utils/relationship';
 import { canEdit } from '../../state/permissions';
@@ -73,7 +76,7 @@ export const ProfileScreen = () => {
 		useState<api.GeneratedPasswordLinkResponse | null>(null);
 
 	const personId = state.selectedPersonId || state.currentUser?.personId || '';
-	const person = state.people[personId];
+	const { person } = usePersonDetails(personId);
 
 	if (!person) return null;
 
@@ -94,7 +97,7 @@ export const ProfileScreen = () => {
 		setLinkError('');
 		setLinkSuccess('');
 		try {
-			const result = await api.generatePasswordLink(person.id, purpose);
+			const result = await api.generatePasswordLink(personId, purpose);
 			setGeneratedLink(result);
 			setLinkSuccess(
 				`${purpose === 'setup-password' ? 'Setup' : 'Reset'} link generated for ${result.username}.`,
@@ -129,7 +132,7 @@ export const ProfileScreen = () => {
 		}
 		setDeleting(true);
 		try {
-			await api.deletePerson(person.id);
+			await api.deletePerson(personId);
 			dispatch({ type: 'SELECT_PERSON', personId: null });
 			await refreshTree();
 		} catch (err) {

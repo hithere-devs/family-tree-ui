@@ -1,5 +1,13 @@
-// const API_BASE = 'http://localhost:8080/api';
-const API_BASE = 'https://api.family.hitheredevs.com/api';
+// const DEFAULT_API_BASE = 'https://api.family.hitheredevs.com/api';
+const DEFAULT_API_BASE = 'http://localhost:8080/api';
+
+function resolveApiBase(): string {
+    const configuredBase = import.meta.env.VITE_API_BASE_URL?.trim();
+    const base = configuredBase || DEFAULT_API_BASE;
+    return base.endsWith('/') ? base.slice(0, -1) : base;
+}
+
+const API_BASE = resolveApiBase();
 
 import type { Person, SocialLink } from '../types';
 
@@ -59,6 +67,12 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
         }
         if (err instanceof SyntaxError) {
             throw new ApiError(`Invalid JSON response received for ${path}`, 502);
+        }
+        if (err instanceof TypeError) {
+            throw new ApiError(
+                `Network request failed for ${API_BASE}${path}`,
+                0,
+            );
         }
         throw err;
     } finally {
@@ -164,6 +178,16 @@ export interface TreeResponse {
 
 export async function getSubtree(personId: string): Promise<TreeResponse> {
     return apiFetch<TreeResponse>(`/tree/${personId}`);
+}
+
+/** Slim tree – only layout + display fields (no bio, phone, etc.) */
+export async function getSubtreeLayout(personId: string): Promise<TreeResponse> {
+    return apiFetch<TreeResponse>(`/tree/${personId}/layout`);
+}
+
+/** Fetch full person details (for profile / edit views) */
+export async function getPerson(personId: string): Promise<PersonResponse> {
+    return apiFetch<PersonResponse>(`/persons/${personId}`);
 }
 
 export interface CreatePersonPayload {

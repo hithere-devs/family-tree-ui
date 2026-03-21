@@ -3,6 +3,9 @@ import {
 	useContext,
 	useReducer,
 	useCallback,
+	useEffect,
+	useRef,
+	useState,
 	type ReactNode,
 	type Dispatch,
 } from 'react';
@@ -50,6 +53,7 @@ export type AppAction =
 	| { type: 'SET_AUTH'; user: User }
 	| { type: 'LOGOUT' }
 	| { type: 'LOAD_TREE'; people: Record<string, Person> }
+	| { type: 'UPDATE_PERSON'; person: Partial<Person> & { id: string } }
 	| { type: 'SET_LOADING'; loading: boolean }
 	| { type: 'SET_ERROR'; error: string | null }
 	| { type: 'SELECT_PERSON'; personId: string | null }
@@ -104,6 +108,18 @@ function reducer(state: AppState, action: AppAction): AppState {
 
 		case 'LOAD_TREE':
 			return { ...state, people: action.people, loading: false, error: null };
+
+		case 'UPDATE_PERSON': {
+			const existing = state.people[action.person.id];
+			if (!existing) return state;
+			return {
+				...state,
+				people: {
+					...state.people,
+					[action.person.id]: { ...existing, ...action.person },
+				},
+			};
+		}
 
 		case 'SET_LOADING':
 			return { ...state, loading: action.loading };
@@ -211,12 +227,12 @@ export function FamilyTreeProvider({ children, initialUser }: ProviderProps) {
 		if (!centerPersonId) return;
 		dispatch({ type: 'SET_LOADING', loading: true });
 		try {
-			console.info('Loading family tree', { centerPersonId });
-			const data = await api.getSubtree(centerPersonId);
+			console.info('Loading family tree layout', { centerPersonId });
+			const data = await api.getSubtreeLayout(centerPersonId);
 			if (!data?.people || typeof data.people !== 'object') {
 				throw new Error('Tree response did not include people data');
 			}
-			console.info('Family tree loaded', {
+			console.info('Family tree layout loaded', {
 				centerPersonId,
 				peopleCount: Object.keys(data.people).length,
 			});
@@ -245,4 +261,41 @@ export function useFamilyTree() {
 		throw new Error('useFamilyTree must be used within FamilyTreeProvider');
 	}
 	return context;
+}
+
+/**
+ * Fetches full person details (bio, phone, socials, etc.) on demand.
+ * Returns the enriched person once loaded, or the slim version while loading.
+ */
+export function usePersonDetails(personId: string | null) {
+	const { state, dispatch } = useFamilyTree();
+	const [loading, setLoading] = useState(false);
+	const fetchedRef = useRef<string | null>(null);
+
+	const person = personId ? (state.people[personId] ?? null) : null;
+
+	// Fetch full details if we have a slim record (no createdBy means it came from layout endpoint)
+	useEffect(() => {
+		if (!personId || !person) return;
+		if (fetchedRef.current === personId) return;
+		// If the person already has detail fields, skip
+		if (person.bio !== undefined || person.phoneNumber !== undefined) return;
+
+		fetchedRef.current = personId;
+		setLoading(true);
+		api
+			.getPerson(personId)
+			.then((full) => {
+				dispatch({
+					type: 'UPDATE_PERSON',
+					person: full as Partial<Person> & { id: string },
+				});
+			})
+			.catch((err) => {
+				console.error('Failed to fetch person details', personId, err);
+			})
+			.finally(() => setLoading(false));
+	}, [personId, person, dispatch]);
+
+	return { person, loading };
 }
