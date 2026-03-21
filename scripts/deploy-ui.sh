@@ -35,7 +35,6 @@ install_certbot() {
 
 ensure_web_root() {
   sudo mkdir -p "${WEB_ROOT}"
-  sudo mkdir -p "${WEB_ROOT}/releases"
 }
 
 write_nginx_config() {
@@ -45,7 +44,7 @@ server {
     listen [::]:80;
     server_name ${DOMAIN};
 
-    root ${WEB_ROOT}/current;
+    root ${WEB_ROOT};
     index index.html;
 
     location / {
@@ -71,11 +70,11 @@ deploy_build() {
     exit 1
   fi
 
-  local release_dir
-  release_dir="${WEB_ROOT}/releases/$(date +%Y%m%d%H%M%S)"
-  sudo mkdir -p "${release_dir}"
-  sudo cp -R "${DIST_DIR}/." "${release_dir}/"
-  sudo ln -sfn "${release_dir}" "${WEB_ROOT}/current"
+  sudo find "${WEB_ROOT}" -mindepth 1 -maxdepth 1 \
+    ! -name .well-known \
+    -exec rm -rf {} +
+
+  sudo cp -R "${DIST_DIR}/." "${WEB_ROOT}/"
 }
 
 enable_and_reload_nginx() {
@@ -102,12 +101,6 @@ ensure_certificate() {
     -d "${DOMAIN}"
 }
 
-cleanup_old_releases() {
-  if [[ -d "${WEB_ROOT}/releases" ]]; then
-    sudo find "${WEB_ROOT}/releases" -mindepth 1 -maxdepth 1 -type d | sort | head -n -3 | xargs -r sudo rm -rf
-  fi
-}
-
 main() {
   require_sudo
   install_nginx
@@ -118,7 +111,6 @@ main() {
   enable_and_reload_nginx
   ensure_certificate
   enable_and_reload_nginx
-  cleanup_old_releases
 }
 
 main "$@"
