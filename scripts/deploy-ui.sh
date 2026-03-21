@@ -30,31 +30,74 @@ install_certbot() {
   fi
 
   sudo apt-get update
-  sudo apt-get install -y certbot python3-certbot-nginx
+  sudo apt-get install -y certbot
 }
 
 ensure_web_root() {
   sudo mkdir -p "${WEB_ROOT}"
 }
 
-write_nginx_config() {
+write_http_nginx_config() {
   sudo tee "${NGINX_SITE_PATH}" >/dev/null <<EOF
 server {
     listen 80;
     listen [::]:80;
     server_name ${DOMAIN};
 
+  location /.well-known/acme-challenge/ {
     root ${WEB_ROOT};
-    index index.html;
+  }
 
     location / {
-        try_files \$uri \$uri/ /index.html;
+    return 301 https://\$host\$request_uri;
     }
+}
+EOF
 
-    location /assets/ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
+  sudo ln -sfn "${NGINX_SITE_PATH}" "${NGINX_SITE_LINK}"
+  if [[ -L /etc/nginx/sites-enabled/default ]]; then
+  sudo rm -f /etc/nginx/sites-enabled/default
+  fi
+}
+
+write_https_nginx_config() {
+  sudo tee "${NGINX_SITE_PATH}" >/dev/null <<EOF
+server {
+  listen 80;
+  listen [::]:80;
+  server_name ${DOMAIN};
+
+  location /.well-known/acme-challenge/ {
+    root ${WEB_ROOT};
+  }
+
+  location / {
+    return 301 https://\$host\$request_uri;
+  }
+}
+
+server {
+  listen 443 ssl http2;
+  listen [::]:443 ssl http2;
+  server_name ${DOMAIN};
+
+  ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+  include /etc/letsencrypt/options-ssl-nginx.conf;
+  ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+  root ${WEB_ROOT};
+  index index.html;
+
+  location /assets/ {
+    try_files \$uri =404;
+    expires 1y;
+    add_header Cache-Control "public, immutable";
+  }
+
+  location / {
+    try_files \$uri \$uri/ /index.html;
+  }
 }
 EOF
 
@@ -93,11 +136,11 @@ ensure_certificate() {
     return
   fi
 
-  sudo certbot --nginx \
+  sudo certbot certonly --webroot \
     --non-interactive \
     --agree-tos \
-    --redirect \
     --email "${CERTBOT_EMAIL}" \
+    -w "${WEB_ROOT}" \
     -d "${DOMAIN}"
 }
 
@@ -106,10 +149,11 @@ main() {
   install_nginx
   install_certbot
   ensure_web_root
-  write_nginx_config
   deploy_build
+  write_http_nginx_config
   enable_and_reload_nginx
   ensure_certificate
+  write_https_nginx_config
   enable_and_reload_nginx
 }
 

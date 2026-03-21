@@ -14,6 +14,7 @@ on:
       - tsconfig.node.json
       - vite.config.ts
       - index.html
+      - nginx/family.hitheredevs.com.conf
       - scripts/deploy-ui.sh
       - .github/workflows/deploy-ui.yml
   workflow_dispatch:
