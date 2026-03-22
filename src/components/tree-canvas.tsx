@@ -1,873 +1,159 @@
-import { useRef, useState, useEffect, useMemo } from 'react';
+import { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { RefreshCw, LocateFixed, Search } from 'lucide-react';
 import { useFamilyTree } from '../state/family-tree-context';
-import { computeTreeLayout } from '../utils/tree-layout';
-import { PersonNode, NODE_W, NODE_H } from './person-node';
-import { getAvatarUrl } from '../utils/avatar';
-import {
-	buildDuplicateNameMap,
-	buildPeopleMap,
-	getPersonDisambiguation,
-	getPersonFullName,
-	getPersonSearchText,
-} from '../utils/person-labels';
+import { CanvasTreeRenderer } from './canvas-tree-renderer';
+import { NodeOverlay } from './node-overlay';
+import type { ViewportNode } from '../services/api-client';
 import { useLanguage } from '../state/language-context';
 import { toUrdu } from '../utils/transliterate';
 
 /* ------------------------------------------------------------------ */
-/*  Edge data types (pure data, no JSX in the memo)                    */
+/*  TreeCanvas — thin React wrapper around CanvasTreeRenderer          */
 /* ------------------------------------------------------------------ */
-
-interface SpouseEdge {
-	key: string;
-	type: 'spouse';
-	path: string;
-	isEx: boolean;
-}
-
-interface ParentChildEdge {
-	key: string;
-	type: 'parent-child';
-	path: string;
-	junctionX: number;
-	childX: number;
-	parentBottomY: number;
-	midY: number;
-	childTopY: number;
-	color: string;
-}
-
-type EdgeData = SpouseEdge | ParentChildEdge;
-
-/* ------------------------------------------------------------------ */
-/*  Edge crossing detection & coloring                                 */
-/* ------------------------------------------------------------------ */
-
-const CROSSING_PALETTE = [
-	'#6366f1', // indigo
-	'#f59e0b', // amber
-	'#10b981', // emerald
-	'#8b5cf6', // violet
-	'#ec4899', // pink
-	'#06b6d4', // cyan
-	'#f97316', // orange
-	'#14b8a6', // teal
-	'#a855f7', // purple
-	'#3b82f6', // blue
-	'#84cc16', // lime
-	'#e11d48', // rose
-];
-
-const DEFAULT_PC_COLOR = '#94a3b8';
-
-/** Does vertical segment (vx, vy1→vy2) cross horizontal (hy, hx1→hx2)? */
-function vhCross(
-	vx: number,
-	vy1: number,
-	vy2: number,
-	hy: number,
-	hx1: number,
-	hx2: number,
-): boolean {
-	const [vyMin, vyMax] = vy1 < vy2 ? [vy1, vy2] : [vy2, vy1];
-	const [hxMin, hxMax] = hx1 < hx2 ? [hx1, hx2] : [hx2, hx1];
-	// strict inequalities so shared endpoints don't count
-	return vx > hxMin && vx < hxMax && hy > vyMin && hy < vyMax;
-}
-
-/** Do two L-shaped parent-child edges cross? */
-function pcEdgesCross(a: ParentChildEdge, b: ParentChildEdge): boolean {
-	// A's vertical segments vs B's horizontal segment
-	if (
-		vhCross(a.junctionX, a.parentBottomY, a.midY, b.midY, b.junctionX, b.childX)
-	)
-		return true;
-	if (vhCross(a.childX, a.midY, a.childTopY, b.midY, b.junctionX, b.childX))
-		return true;
-	// B's vertical segments vs A's horizontal segment
-	if (
-		vhCross(b.junctionX, b.parentBottomY, b.midY, a.midY, a.junctionX, a.childX)
-	)
-		return true;
-	if (vhCross(b.childX, b.midY, b.childTopY, a.midY, a.junctionX, a.childX))
-		return true;
-	return false;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Component                                                          */
-/* ------------------------------------------------------------------ */
-
-const LS_KEY = 'family-tree-canvas-view';
-
-function loadSavedView(): {
-	offset: { x: number; y: number };
-	zoom: number;
-} | null {
-	try {
-		const raw = localStorage.getItem(LS_KEY);
-		if (!raw) return null;
-		const v = JSON.parse(raw);
-		if (
-			typeof v.zoom === 'number' &&
-			v.offset?.x != null &&
-			v.offset?.y != null
-		)
-			return v;
-	} catch {
-		/* ignore */
-	}
-	return null;
-}
 
 export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 	const { state, dispatch, centerPersonId, refreshTree } = useFamilyTree();
 	const containerRef = useRef<HTMLDivElement>(null);
-	const [viewportSize, setViewportSize] = useState(() => ({
-		width: typeof window === 'undefined' ? 0 : window.innerWidth,
-		height: typeof window === 'undefined' ? 0 : window.innerHeight,
-	}));
-
-	/* ---- pan / zoom ---- */
-	/* Refs hold real-time values for handlers + CSS transforms.
-	   stableZoom / stableOffset are debounced copies that drive
-	   useMemo hooks so we avoid costly re-renders every frame. */
-	const saved = useRef(loadSavedView());
-	const zoomRef = useRef(saved.current?.zoom ?? 1);
-	const offsetRef = useRef(saved.current?.offset ?? { x: 0, y: 0 });
-	const worldRef = useRef<HTMLDivElement>(null);
-	const canvasRef = useRef<HTMLCanvasElement>(null);
-	const [stableZoom, setStableZoom] = useState(zoomRef.current);
-	const [stableOffset, setStableOffset] = useState({ ...offsetRef.current });
-
-	const [isDragging, setIsDragging] = useState(false);
-	const dragStartRef = useRef({ x: 0, y: 0 });
-	const dragStartOffsetRef = useRef({ x: 0, y: 0 });
-	const wasDraggedRef = useRef(false);
+	const rendererRef = useRef<CanvasTreeRenderer | null>(null);
 
 	/* ---- search state ---- */
 	const [isSearchOpen, setIsSearchOpen] = useState(false);
 	const [searchQuery, setSearchQuery] = useState('');
 	const searchInputRef = useRef<HTMLInputElement>(null);
-	const allPeople = useMemo(() => Object.values(state.people), [state.people]);
-	const peopleById = useMemo(() => buildPeopleMap(allPeople), [allPeople]);
-	const duplicateNames = useMemo(
-		() => buildDuplicateNameMap(allPeople),
-		[allPeople],
-	);
 	const { isUrdu } = useLanguage();
-	const getDisambiguation = (person: (typeof allPeople)[number]) =>
-		getPersonDisambiguation(person, peopleById, duplicateNames);
+
+	/* Overlay state — position of the selected node on screen */
+	const [overlayPos, setOverlayPos] = useState<{ x: number; y: number } | null>(
+		null,
+	);
+	const overlayTimerRef = useRef(0);
+
+	/* ---- stable callback refs (avoids re-creating renderer on every render) ---- */
+
+	const callbacksRef = useRef({
+		onPersonSelect: (personId: string | null) => {
+			dispatch({ type: 'SELECT_PERSON', personId });
+		},
+		onPersonOpen: (personId: string) => {
+			dispatch({ type: 'SELECT_PERSON', personId });
+			onPersonOpen?.();
+		},
+		onOpenAddPersonModal: (
+			personId: string,
+			relation: 'parent' | 'child' | 'spouse' | 'sibling',
+		) => {
+			dispatch({
+				type: 'OPEN_ADD_PERSON_MODAL',
+				relativePersonId: personId,
+				relationType: relation,
+			});
+		},
+	});
+
+	/* Keep refs in sync with latest props/dispatch */
+	useEffect(() => {
+		callbacksRef.current.onPersonSelect = (personId: string | null) => {
+			dispatch({ type: 'SELECT_PERSON', personId });
+		};
+		callbacksRef.current.onPersonOpen = (personId: string) => {
+			dispatch({ type: 'SELECT_PERSON', personId });
+			onPersonOpen?.();
+		};
+		callbacksRef.current.onOpenAddPersonModal = (
+			personId: string,
+			relation: 'parent' | 'child' | 'spouse' | 'sibling',
+		) => {
+			dispatch({
+				type: 'OPEN_ADD_PERSON_MODAL',
+				relativePersonId: personId,
+				relationType: relation,
+			});
+		};
+	});
+
+	/* ---- mount / unmount renderer ---- */
+
+	useEffect(() => {
+		const el = containerRef.current;
+		if (!el || !centerPersonId) return;
+
+		const renderer = new CanvasTreeRenderer(
+			el,
+			{
+				onPersonSelect: (id) => callbacksRef.current.onPersonSelect(id),
+				onPersonOpen: (id) => callbacksRef.current.onPersonOpen(id),
+				onOpenAddPersonModal: (id, rel) =>
+					callbacksRef.current.onOpenAddPersonModal(id, rel),
+			},
+			centerPersonId,
+		);
+
+		rendererRef.current = renderer;
+
+		return () => {
+			renderer.destroy();
+			rendererRef.current = null;
+		};
+	}, [centerPersonId]);
+
+	/* ---- sync selected person to renderer ---- */
+
+	useEffect(() => {
+		rendererRef.current?.setSelectedId(state.selectedPersonId);
+
+		/* Update overlay position */
+		clearTimeout(overlayTimerRef.current);
+		if (state.selectedPersonId && rendererRef.current) {
+			const pos = rendererRef.current.getNodeScreenPosition(
+				state.selectedPersonId,
+			);
+			setOverlayPos(pos);
+		} else {
+			setOverlayPos(null);
+		}
+	}, [state.selectedPersonId]);
+
+	/* ---- refresh handler ---- */
+
+	const handleRefresh = useCallback(async () => {
+		await refreshTree();
+		rendererRef.current?.invalidate();
+	}, [refreshTree]);
+
+	/* ---- reset view ---- */
+
+	const handleReset = useCallback(() => {
+		rendererRef.current?.resetView();
+	}, []);
+
+	/* ---- search within loaded nodes ---- */
 
 	const searchResults = useMemo(() => {
-		if (!searchQuery.trim()) return [];
+		if (!searchQuery.trim() || !rendererRef.current) return [];
 		const q = searchQuery.toLowerCase();
-		return allPeople
-			.filter((p) =>
-				getPersonSearchText(p, peopleById, duplicateNames).includes(q),
+		return rendererRef.current
+			.getLoadedNodes()
+			.filter(
+				(n) =>
+					n.firstName.toLowerCase().includes(q) ||
+					n.lastName.toLowerCase().includes(q),
 			)
 			.slice(0, 8);
-	}, [allPeople, duplicateNames, peopleById, searchQuery]);
+	}, [searchQuery]);
 
 	function jumpToPerson(personId: string) {
-		const pos = positionMap.get(personId);
-		if (pos && containerRef.current) {
-			const { width, height } = containerRef.current.getBoundingClientRect();
-			offsetRef.current = {
-				x: width / 2 - pos.x * zoomRef.current,
-				y: height / 2 - pos.y * zoomRef.current,
-			};
-			applyTransform();
-			settle();
-			dispatch({ type: 'SELECT_PERSON', personId });
-			setIsSearchOpen(false);
-			setSearchQuery('');
-		}
+		rendererRef.current?.jumpToNode(personId);
+		dispatch({ type: 'SELECT_PERSON', personId });
+		setIsSearchOpen(false);
+		setSearchQuery('');
 	}
-
-	/* ---- ref-based transform helpers ---- */
-
-	/** Apply transform directly to DOM — no React re-render */
-	function applyTransform() {
-		if (worldRef.current) {
-			const { x, y } = offsetRef.current;
-			worldRef.current.style.transform = `translate(${x}px, ${y}px) scale(${zoomRef.current})`;
-		}
-		if (containerRef.current) {
-			const gs = 20 * zoomRef.current;
-			const { x, y } = offsetRef.current;
-			containerRef.current.style.backgroundSize = `${gs}px ${gs}px`;
-			containerRef.current.style.backgroundPosition = `${x}px ${y}px`;
-		}
-	}
-
-	/** Sync refs → React state (debounced) for virtualization / edges */
-	const settleTimerRef = useRef(0);
-	function settle() {
-		clearTimeout(settleTimerRef.current);
-		setStableZoom(zoomRef.current);
-		setStableOffset({ ...offsetRef.current });
-		try {
-			localStorage.setItem(
-				LS_KEY,
-				JSON.stringify({ offset: offsetRef.current, zoom: zoomRef.current }),
-			);
-		} catch {
-			/* quota */
-		}
-	}
-	function scheduleSettle() {
-		clearTimeout(settleTimerRef.current);
-		settleTimerRef.current = window.setTimeout(settle, 120);
-	}
-
-	/* pinch zoom ref state */
-	const pinchRef = useRef<{
-		startDist: number;
-		startZoom: number;
-		startMidX: number;
-		startMidY: number;
-		startOffset: { x: number; y: number };
-	} | null>(null);
-
-	/* touch-pan ref state (native handlers can't read React state synchronously) */
-	const touchPanRef = useRef<{
-		startX: number;
-		startY: number;
-		startOffset: { x: number; y: number };
-	} | null>(null);
-
-	/* ---- layout ---- */
-
-	const positions = useMemo(
-		() => computeTreeLayout(state.people, centerPersonId),
-		[state.people, centerPersonId],
-	);
-
-	const positionMap = useMemo(() => {
-		const map = new Map<string, { x: number; y: number }>();
-		for (const p of positions) {
-			map.set(p.personId, { x: p.x, y: p.y });
-		}
-		return map;
-	}, [positions]);
-
-	const canvasBounds = useMemo(() => {
-		if (positions.length === 0) return null;
-		let minX = Infinity,
-			minY = Infinity,
-			maxX = -Infinity,
-			maxY = -Infinity;
-		for (const p of positions) {
-			if (p.x < minX) minX = p.x;
-			if (p.y < minY) minY = p.y;
-			if (p.x > maxX) maxX = p.x;
-			if (p.y > maxY) maxY = p.y;
-		}
-		const pad = 30;
-		return {
-			minX: minX - pad,
-			minY: minY - pad,
-			width: maxX - minX + 2 * pad,
-			height: maxY - minY + 2 * pad,
-		};
-	}, [positions]);
-
-	const shouldVirtualize = positions.length > 250;
-
-	const visiblePositions = useMemo(() => {
-		if (
-			!shouldVirtualize ||
-			viewportSize.width === 0 ||
-			viewportSize.height === 0
-		) {
-			return positions;
-		}
-
-		const z = Math.max(stableZoom, 0.05);
-		const margin = 300 / z;
-		const minX = -stableOffset.x / z - margin;
-		const maxX = (viewportSize.width - stableOffset.x) / z + margin;
-		const minY = -stableOffset.y / z - margin;
-		const maxY = (viewportSize.height - stableOffset.y) / z + margin;
-
-		return positions.filter(
-			(pos) => pos.x >= minX && pos.x <= maxX && pos.y >= minY && pos.y <= maxY,
-		);
-	}, [
-		stableOffset.x,
-		stableOffset.y,
-		positions,
-		shouldVirtualize,
-		viewportSize.height,
-		viewportSize.width,
-		stableZoom,
-	]);
-
-	const visibleIds = useMemo(
-		() => new Set(visiblePositions.map((pos) => pos.personId)),
-		[visiblePositions],
-	);
-
-	/* ---- initialise offset to viewport centre (only if no saved view) & track resizes ---- */
-
-	useEffect(() => {
-		const el = containerRef.current;
-		if (!el) return;
-
-		if (!saved.current) {
-			const { width, height } = el.getBoundingClientRect();
-			offsetRef.current = { x: width / 2, y: height / 2 };
-		}
-		saved.current = null;
-		applyTransform();
-		settle();
-	}, []);
-
-	useEffect(() => {
-		const el = containerRef.current;
-		if (!el) return;
-
-		const updateViewportSize = () => {
-			const { width, height } = el.getBoundingClientRect();
-			setViewportSize({ width, height });
-		};
-
-		updateViewportSize();
-		window.addEventListener('resize', updateViewportSize);
-		return () => window.removeEventListener('resize', updateViewportSize);
-	}, []);
-
-	/* ---- native wheel handler (non-passive so we can preventDefault) ---- */
-
-	useEffect(() => {
-		const el = containerRef.current;
-		if (!el) return;
-
-		const handleWheel = (e: WheelEvent) => {
-			e.preventDefault();
-			const curZoom = zoomRef.current;
-			const curOffset = offsetRef.current;
-
-			const factor = e.deltaY < 0 ? 1.1 : 0.9;
-			const newZoom = curZoom * factor;
-
-			const rect = el.getBoundingClientRect();
-			const mx = e.clientX - rect.left;
-			const my = e.clientY - rect.top;
-
-			offsetRef.current = {
-				x: mx - ((mx - curOffset.x) / curZoom) * newZoom,
-				y: my - ((my - curOffset.y) / curZoom) * newZoom,
-			};
-			zoomRef.current = newZoom;
-			applyTransform();
-			scheduleSettle();
-		};
-
-		el.addEventListener('wheel', handleWheel, { passive: false });
-		return () => el.removeEventListener('wheel', handleWheel);
-	}, []);
-
-	/* ---- native touch handlers (non-passive for preventDefault) ---- */
-
-	useEffect(() => {
-		const el = containerRef.current;
-		if (!el) return;
-
-		function dist(a: Touch, b: Touch) {
-			return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-		}
-
-		const handleTouchStart = (e: TouchEvent) => {
-			if (e.touches.length === 2) {
-				e.preventDefault();
-				touchPanRef.current = null;
-				const d = dist(e.touches[0], e.touches[1]);
-				const rect = el.getBoundingClientRect();
-				const midX =
-					(e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
-				const midY =
-					(e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
-				pinchRef.current = {
-					startDist: d,
-					startZoom: zoomRef.current,
-					startMidX: midX,
-					startMidY: midY,
-					startOffset: { ...offsetRef.current },
-				};
-			} else if (e.touches.length === 1) {
-				pinchRef.current = null;
-				touchPanRef.current = {
-					startX: e.touches[0].clientX,
-					startY: e.touches[0].clientY,
-					startOffset: { ...offsetRef.current },
-				};
-				setIsDragging(true);
-				wasDraggedRef.current = false;
-			}
-		};
-
-		const handleTouchMove = (e: TouchEvent) => {
-			if (e.touches.length === 2 && pinchRef.current) {
-				e.preventDefault();
-				const d = dist(e.touches[0], e.touches[1]);
-				const scale = d / pinchRef.current.startDist;
-				const newZoom = pinchRef.current.startZoom * scale;
-
-				const { startMidX, startMidY, startOffset, startZoom } =
-					pinchRef.current;
-
-				offsetRef.current = {
-					x: startMidX - ((startMidX - startOffset.x) / startZoom) * newZoom,
-					y: startMidY - ((startMidY - startOffset.y) / startZoom) * newZoom,
-				};
-				zoomRef.current = newZoom;
-				applyTransform();
-				scheduleSettle();
-			} else if (e.touches.length === 1 && touchPanRef.current) {
-				e.preventDefault();
-				const dx = e.touches[0].clientX - touchPanRef.current.startX;
-				const dy = e.touches[0].clientY - touchPanRef.current.startY;
-				if (Math.abs(dx) > 3 || Math.abs(dy) > 3) wasDraggedRef.current = true;
-				offsetRef.current = {
-					x: touchPanRef.current.startOffset.x + dx,
-					y: touchPanRef.current.startOffset.y + dy,
-				};
-				applyTransform();
-				scheduleSettle();
-			}
-		};
-
-		const handleTouchEnd = (e: TouchEvent) => {
-			if (e.touches.length < 2) {
-				pinchRef.current = null;
-			}
-			if (e.touches.length === 0) {
-				touchPanRef.current = null;
-				setIsDragging(false);
-			}
-		};
-
-		el.addEventListener('touchstart', handleTouchStart, { passive: false });
-		el.addEventListener('touchmove', handleTouchMove, { passive: false });
-		el.addEventListener('touchend', handleTouchEnd, { passive: false });
-		return () => {
-			el.removeEventListener('touchstart', handleTouchStart);
-			el.removeEventListener('touchmove', handleTouchMove);
-			el.removeEventListener('touchend', handleTouchEnd);
-		};
-	}, []);
-
-	/* ---- mouse handlers for panning ---- */
-
-	function handlePointerDown(clientX: number, clientY: number) {
-		setIsDragging(true);
-		wasDraggedRef.current = false;
-		dragStartRef.current = { x: clientX, y: clientY };
-		dragStartOffsetRef.current = { ...offsetRef.current };
-	}
-
-	function handlePointerMove(clientX: number, clientY: number) {
-		if (!isDragging) return;
-		const dx = clientX - dragStartRef.current.x;
-		const dy = clientY - dragStartRef.current.y;
-		if (Math.abs(dx) > 3 || Math.abs(dy) > 3) wasDraggedRef.current = true;
-		offsetRef.current = {
-			x: dragStartOffsetRef.current.x + dx,
-			y: dragStartOffsetRef.current.y + dy,
-		};
-		applyTransform();
-		scheduleSettle();
-	}
-
-	function handlePointerUp() {
-		setIsDragging(false);
-	}
-
-	function handleMouseDown(e: React.MouseEvent) {
-		if (e.button !== 0) return;
-		handlePointerDown(e.clientX, e.clientY);
-	}
-
-	function handleMouseMove(e: React.MouseEvent) {
-		handlePointerMove(e.clientX, e.clientY);
-	}
-
-	function handleMouseUp() {
-		handlePointerUp();
-	}
-
-	function handleBackgroundClick() {
-		if (!wasDraggedRef.current && state.selectedPersonId) {
-			dispatch({ type: 'SELECT_PERSON', personId: null });
-		}
-	}
-
-	function resetView() {
-		if (containerRef.current) {
-			const { width, height } = containerRef.current.getBoundingClientRect();
-			offsetRef.current = { x: width / 2, y: height / 2 };
-			zoomRef.current = 1;
-			applyTransform();
-			settle();
-		}
-	}
-
-	/* ---- compute edges ---- */
-
-	const edgeData = useMemo(() => {
-		const result: EdgeData[] = [];
-		const drawnSpouses = new Set<string>();
-		const peopleToRender = shouldVirtualize
-			? Object.values(state.people).filter((person) =>
-					visibleIds.has(person.id),
-				)
-			: Object.values(state.people);
-
-		/* ---- spouse edges (current + ex) ---- */
-		for (const person of peopleToRender) {
-			const allSpouses = [
-				...(person.spouseIds || []).map((id) => ({ id, isEx: false })),
-				...(person.exSpouseIds || []).map((id) => ({ id, isEx: true })),
-			];
-			for (const { id: sid, isEx } of allSpouses) {
-				if (
-					positionMap.has(person.id) &&
-					positionMap.has(sid) &&
-					visibleIds.has(sid)
-				) {
-					const key = [person.id, sid].sort().join('-');
-					if (!drawnSpouses.has(key)) {
-						drawnSpouses.add(key);
-						const p1 = positionMap.get(person.id)!;
-						const p2 = positionMap.get(sid)!;
-						const leftX = Math.min(p1.x, p2.x) + NODE_W / 2;
-						const rightX = Math.max(p1.x, p2.x) - NODE_W / 2;
-						const y = (p1.y + p2.y) / 2;
-
-						const isAdjacent = Math.abs(p1.x - p2.x) < 300;
-						let path = '';
-						if (isAdjacent) {
-							path = `M ${leftX} ${y} L ${rightX} ${y}`;
-						} else {
-							const arcY = y + NODE_H / 2 + 10;
-							path = `M ${leftX} ${y} L ${leftX} ${arcY} L ${rightX} ${arcY} L ${rightX} ${y}`;
-						}
-
-						result.push({
-							key,
-							type: 'spouse',
-							path,
-							isEx,
-						});
-					}
-				}
-			}
-		}
-
-		/* ---- parent-child edges — grouped by parent family (brackets) ---- */
-		const familyMap = new Map<
-			string,
-			{ parentIds: string[]; childIds: string[] }
-		>();
-
-		for (const person of peopleToRender) {
-			if (person.parentIds.length > 0 && positionMap.has(person.id)) {
-				const key = [...person.parentIds].sort().join(',');
-				if (!familyMap.has(key)) {
-					familyMap.set(key, {
-						parentIds: [...person.parentIds].sort(),
-						childIds: [],
-					});
-				}
-				familyMap.get(key)!.childIds.push(person.id);
-			}
-		}
-
-		// Pre-compute each family's geometry
-		interface FamilyGeo {
-			familyKey: string;
-			family: { parentIds: string[]; childIds: string[] };
-			parentPositions: { x: number; y: number }[];
-			junctionX: number;
-			parentBottomY: number;
-			closestChildTopY: number;
-			childPositions: { id: string; x: number; y: number }[];
-		}
-
-		const familyGeos: FamilyGeo[] = [];
-
-		for (const [familyKey, family] of familyMap) {
-			const parentPositions = family.parentIds
-				.filter((pid) => positionMap.has(pid))
-				.map((pid) => positionMap.get(pid)!);
-
-			if (parentPositions.length === 0) continue;
-
-			const junctionX =
-				parentPositions.reduce((s, p) => s + p.x, 0) / parentPositions.length;
-			const parentBottomY = parentPositions[0].y + NODE_H / 2;
-
-			const childPositions = family.childIds
-				.filter((cid) => positionMap.has(cid))
-				.map((cid) => ({ id: cid, ...positionMap.get(cid)! }));
-
-			if (childPositions.length === 0) continue;
-			childPositions.sort((a, b) => a.x - b.x);
-
-			const closestChildTopY =
-				Math.min(...childPositions.map((c) => c.y)) - NODE_H / 2;
-
-			familyGeos.push({
-				familyKey,
-				family,
-				parentPositions,
-				junctionX,
-				parentBottomY,
-				closestChildTopY,
-				childPositions,
-			});
-		}
-
-		// Group families by their row pair layout (so we don't overlap brackets within the same generation gap)
-		const rowPairGroups = new Map<string, FamilyGeo[]>();
-		for (const fg of familyGeos) {
-			const rpKey = `${fg.parentBottomY},${fg.closestChildTopY}`;
-			if (!rowPairGroups.has(rpKey)) rowPairGroups.set(rpKey, []);
-			rowPairGroups.get(rpKey)!.push(fg);
-		}
-
-		// Calculate safe vertical spacing for the bottom bar of each family
-		const horizontalBarYMap = new Map<string, number>();
-		for (const group of rowPairGroups.values()) {
-			group.sort((a, b) => a.junctionX - b.junctionX);
-
-			const pbY = group[0].parentBottomY;
-			const ccTY = group[0].closestChildTopY;
-
-			// The top T-bar will be placed at pbY + 15.
-			// The spouse arc lines might go down to pbY + 10.
-			// We define the safe region for the bottom bars to avoid parent nodes entirely.
-			// The safe region starts safely below the parent node's top arrangements.
-			const safeTop = pbY + 50;
-			// We want the lowest distribution of the children bars to be right above the children
-			const safeBottom = ccTY - 40;
-
-			const maxStep = 35;
-			const totalNeeded = (group.length - 1) * maxStep;
-
-			if (totalNeeded <= safeBottom - safeTop) {
-				// We have plenty of room. Place them starting from safeBottom and staggering upwards
-				for (let i = 0; i < group.length; i++) {
-					horizontalBarYMap.set(group[i].familyKey, safeBottom - i * maxStep);
-				}
-			} else {
-				// Squeeze them within the safe region so they NEVER overlap nodes
-				const step = Math.max(
-					10,
-					(safeBottom - safeTop) / Math.max(1, group.length - 1),
-				);
-				for (let i = 0; i < group.length; i++) {
-					horizontalBarYMap.set(group[i].familyKey, safeBottom - i * step);
-				}
-			}
-		}
-
-		// Build bracket paths with double T-bar structure
-		for (const fg of familyGeos) {
-			const bottomBarY =
-				horizontalBarYMap.get(fg.familyKey) ?? fg.closestChildTopY - 20;
-			const topBarY = fg.parentBottomY + 15;
-
-			// === Top T-bar: stems from each parent's bottom ===
-			let path = '';
-			for (const pp of fg.parentPositions) {
-				path += `M ${pp.x} ${fg.parentBottomY} L ${pp.x} ${topBarY} `;
-			}
-			// Horizontal bar connecting parent stems (couples)
-			if (fg.parentPositions.length > 1) {
-				const pxs = fg.parentPositions.map((p) => p.x);
-				path += `M ${Math.min(...pxs)} ${topBarY} L ${Math.max(...pxs)} ${topBarY} `;
-			}
-
-			// === Vertical connector from junction to bottom bar ===
-			path += `M ${fg.junctionX} ${topBarY} L ${fg.junctionX} ${bottomBarY} `;
-
-			// === Bottom inverted T-bar: horizontal bar near children ===
-			if (fg.childPositions.length === 1) {
-				const child = fg.childPositions[0];
-				const childTop = child.y - NODE_H / 2;
-				if (child.x !== fg.junctionX) {
-					path += `M ${fg.junctionX} ${bottomBarY} L ${child.x} ${bottomBarY} `;
-				}
-				path += `M ${child.x} ${bottomBarY} L ${child.x} ${childTop}`;
-			} else {
-				// Horizontal bar spanning all children
-				const leftX = Math.min(fg.junctionX, fg.childPositions[0].x);
-				const rightX = Math.max(
-					fg.junctionX,
-					fg.childPositions[fg.childPositions.length - 1].x,
-				);
-				path += `M ${leftX} ${bottomBarY} L ${rightX} ${bottomBarY} `;
-
-				// Vertical drops to each child
-				for (const child of fg.childPositions) {
-					const childTop = child.y - NODE_H / 2;
-					path += `M ${child.x} ${bottomBarY} L ${child.x} ${childTop} `;
-				}
-			}
-
-			result.push({
-				key: `pc-${fg.familyKey}`,
-				type: 'parent-child',
-				path,
-				junctionX: fg.junctionX,
-				childX: fg.childPositions[Math.floor(fg.childPositions.length / 2)].x,
-				parentBottomY: fg.parentBottomY,
-				midY: bottomBarY,
-				childTopY: fg.closestChildTopY,
-				color: DEFAULT_PC_COLOR,
-			});
-		}
-
-		/* ---- assign distinct colours to ALL parent-child brackets ---- */
-		const pcEdges = result.filter(
-			(e): e is ParentChildEdge => e.type === 'parent-child',
-		);
-
-		if (pcEdges.length > 80) {
-			// Skip O(n²) crossing detection for large trees — round-robin colours
-			for (let i = 0; i < pcEdges.length; i++) {
-				pcEdges[i].color = CROSSING_PALETTE[i % CROSSING_PALETTE.length];
-			}
-			return result;
-		}
-
-		// Build adjacency list: which edges cross each other
-		const adj = new Map<number, Set<number>>();
-		for (let i = 0; i < pcEdges.length; i++) {
-			for (let j = i + 1; j < pcEdges.length; j++) {
-				if (pcEdgesCross(pcEdges[i], pcEdges[j])) {
-					if (!adj.has(i)) adj.set(i, new Set());
-					if (!adj.has(j)) adj.set(j, new Set());
-					adj.get(i)!.add(j);
-					adj.get(j)!.add(i);
-				}
-			}
-		}
-
-		// Greedy graph colouring — assign a colour to EVERY bracket,
-		// ensuring crossing brackets never share the same colour.
-		const colorIdx = new Map<number, number>();
-		for (let i = 0; i < pcEdges.length; i++) {
-			const used = new Set<number>();
-			const neighbors = adj.get(i);
-			if (neighbors) {
-				for (const nb of neighbors) {
-					if (colorIdx.has(nb)) used.add(colorIdx.get(nb)!);
-				}
-			}
-			let c = i % CROSSING_PALETTE.length;
-			while (used.has(c)) c = (c + 1) % CROSSING_PALETTE.length;
-			colorIdx.set(i, c);
-		}
-
-		// Apply colours to all brackets
-		for (let i = 0; i < pcEdges.length; i++) {
-			pcEdges[i].color =
-				CROSSING_PALETTE[colorIdx.get(i)! % CROSSING_PALETTE.length];
-		}
-
-		return result;
-	}, [positionMap, shouldVirtualize, state.people, visibleIds]);
 
 	/* ---- render ---- */
-	const isLowDetail = stableZoom < 0.35;
-
-	/* ---- canvas drawing for low-detail (zoomed-out) view ---- */
-	useEffect(() => {
-		const canvas = canvasRef.current;
-		if (!isLowDetail || !canvasBounds || !canvas) return;
-		const ctx = canvas.getContext('2d');
-		if (!ctx) return;
-
-		ctx.clearRect(0, 0, canvas.width, canvas.height);
-		const { minX, minY } = canvasBounds;
-
-		for (const pos of positions) {
-			const p = state.people[pos.personId];
-			const cx = pos.x - minX;
-			const cy = pos.y - minY;
-			const r = 10;
-
-			ctx.beginPath();
-			ctx.arc(cx, cy, r, 0, Math.PI * 2);
-			ctx.fillStyle = p?.gender === 'female' ? '#f472b6' : '#60a5fa';
-			ctx.globalAlpha = p?.isDeceased ? 0.4 : 0.9;
-			ctx.fill();
-
-			ctx.globalAlpha = 1;
-			if (pos.personId === state.selectedPersonId) {
-				ctx.strokeStyle = '#facc15';
-				ctx.lineWidth = 3;
-			} else if (pos.personId === centerPersonId) {
-				ctx.strokeStyle = '#84cc16';
-				ctx.lineWidth = 3;
-			} else {
-				ctx.strokeStyle = 'white';
-				ctx.lineWidth = 2;
-			}
-			ctx.stroke();
-		}
-	}, [
-		isLowDetail,
-		positions,
-		canvasBounds,
-		state.people,
-		centerPersonId,
-		state.selectedPersonId,
-	]);
-
-	function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
-		if (wasDraggedRef.current) return;
-		e.stopPropagation();
-		const rect = containerRef.current?.getBoundingClientRect();
-		if (!rect) return;
-		const worldX =
-			(e.clientX - rect.left - offsetRef.current.x) / zoomRef.current;
-		const worldY =
-			(e.clientY - rect.top - offsetRef.current.y) / zoomRef.current;
-		let closest: string | null = null;
-		let closestDist = 20;
-		for (const pos of positions) {
-			const d = Math.hypot(pos.x - worldX, pos.y - worldY);
-			if (d < closestDist) {
-				closestDist = d;
-				closest = pos.personId;
-			}
-		}
-		if (closest) {
-			dispatch({ type: 'SELECT_PERSON', personId: closest });
-		}
-	}
 
 	return (
 		<div
 			ref={containerRef}
-			className={`w-full h-full overflow-hidden relative select-none bg-gray-50 touch-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-			style={{
-				backgroundSize: `${20 * zoomRef.current}px ${20 * zoomRef.current}px`,
-				backgroundPosition: `${offsetRef.current.x}px ${offsetRef.current.y}px`,
-				backgroundImage:
-					'radial-gradient(circle, #e2e8f0 1px, transparent 1px)',
-			}}
-			onMouseDown={handleMouseDown}
-			onMouseMove={handleMouseMove}
-			onMouseUp={handleMouseUp}
-			onMouseLeave={handleMouseUp}
-			onTouchCancel={handlePointerUp}
-			onClick={handleBackgroundClick}
+			className='w-full h-full overflow-hidden relative select-none bg-gray-50 touch-none'
 		>
 			{/* Controls: Search, Refresh, Reset */}
 			<div className='absolute top-4 right-4 z-10 flex gap-1.5 sm:gap-2'>
@@ -902,7 +188,7 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 					{/* Search Results */}
 					{isSearchOpen && searchResults.length > 0 && (
 						<div className='absolute top-full mt-2 -right-16 sm:right-0 w-[240px] sm:w-64 max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden py-1 z-50'>
-							{searchResults.map((p) => (
+							{searchResults.map((p: ViewportNode) => (
 								<button
 									key={p.id}
 									onClick={(e) => {
@@ -911,11 +197,11 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 									}}
 									className='w-full text-left px-4 py-2 hover:bg-lime-50 focus:bg-lime-50 transition-colors text-sm flex items-center gap-3'
 								>
-									<img
-										src={getAvatarUrl(p)}
-										className='h-8 w-8 rounded-full object-cover border border-gray-100 shrink-0'
-										alt=''
-									/>
+									<div
+										className={`h-8 w-8 rounded-full border border-gray-100 shrink-0 flex items-center justify-center text-white text-xs font-bold ${p.gender === 'female' ? 'bg-pink-400' : 'bg-blue-400'}`}
+									>
+										{p.firstName?.[0] ?? '?'}
+									</div>
 									<div className='min-w-0'>
 										<div className='font-semibold text-gray-800 truncate'>
 											{isUrdu ? (
@@ -925,17 +211,12 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 														direction: 'rtl' as const,
 													}}
 												>
-													{toUrdu(getPersonFullName(p))}
+													{toUrdu(`${p.firstName} ${p.lastName || ''}`.trim())}
 												</span>
 											) : (
-												getPersonFullName(p)
+												`${p.firstName} ${p.lastName || ''}`.trim()
 											)}
 										</div>
-										{getDisambiguation(p) && (
-											<div className='truncate text-xs text-gray-500'>
-												{getDisambiguation(p)}
-											</div>
-										)}
 									</div>
 								</button>
 							))}
@@ -946,7 +227,7 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 				<button
 					onClick={(e) => {
 						e.stopPropagation();
-						refreshTree();
+						handleRefresh();
 					}}
 					className='bg-white/90 backdrop-blur-sm px-2.5 sm:px-3 py-1.5 h-8 sm:h-9 rounded-full shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-indigo-600 transition-colors border border-gray-200 flex items-center gap-1.5'
 				>
@@ -956,7 +237,7 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 				<button
 					onClick={(e) => {
 						e.stopPropagation();
-						resetView();
+						handleReset();
 					}}
 					className='bg-white/90 backdrop-blur-sm px-2.5 sm:px-3 py-1.5 h-8 sm:h-9 rounded-full shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-indigo-600 transition-colors border border-gray-200 flex items-center gap-1.5'
 				>
@@ -965,115 +246,15 @@ export function TreeCanvas({ onPersonOpen }: { onPersonOpen?: () => void }) {
 				</button>
 			</div>
 
-			{/* Transformed world container */}
-			<div
-				ref={worldRef}
-				style={{
-					transform: `translate(${offsetRef.current.x}px, ${offsetRef.current.y}px) scale(${zoomRef.current})`,
-					transformOrigin: '0 0',
-					position: 'absolute',
-					top: 0,
-					left: 0,
-					willChange: 'transform',
-				}}
-			>
-				{/* SVG edge layer */}
-				<svg
-					style={{
-						position: 'absolute',
-						overflow: 'visible',
-						top: 0,
-						left: 0,
-						width: 1,
-						height: 1,
-					}}
-				>
-					{edgeData.map((edge) =>
-						edge.type === 'spouse' ? (
-							<g key={edge.key}>
-								<path
-									d={edge.path}
-									fill='none'
-									stroke={edge.isEx ? '#f87171' : '#a5b4fc'}
-									strokeWidth={edge.isEx ? 1.5 : 2}
-									strokeDasharray={edge.isEx ? '4 4' : '6 3'}
-									strokeOpacity={edge.isEx ? 0.6 : 1}
-								/>
-								{edge.isEx &&
-									(() => {
-										const parts =
-											edge.path.match(/-?[\d.]+/g)?.map(Number) || [];
-										if (parts.length >= 4) {
-											const mx = (parts[0] + parts[parts.length - 2]) / 2;
-											const my = (parts[1] + parts[parts.length - 1]) / 2;
-											return (
-												<text
-													x={mx}
-													y={my}
-													textAnchor='middle'
-													dominantBaseline='central'
-													fontSize={14}
-													fontWeight='bold'
-													fill='#ef4444'
-												>
-													✕
-												</text>
-											);
-										}
-										return null;
-									})()}
-							</g>
-						) : (
-							<path
-								key={edge.key}
-								d={edge.path}
-								fill='none'
-								stroke={edge.color}
-								strokeWidth={2.5}
-							/>
-						),
-					)}
-				</svg>
-
-				{/* Person nodes — canvas when zoomed far out, DOM nodes when zoomed in */}
-				{isLowDetail
-					? canvasBounds && (
-							<canvas
-								ref={canvasRef}
-								width={canvasBounds.width}
-								height={canvasBounds.height}
-								style={{
-									position: 'absolute',
-									left: canvasBounds.minX,
-									top: canvasBounds.minY,
-								}}
-								onClick={handleCanvasClick}
-							/>
-						)
-					: visiblePositions.map((pos) => (
-							<PersonNode
-								key={pos.personId}
-								person={state.people[pos.personId]}
-								x={pos.x}
-								y={pos.y}
-								isCenter={pos.personId === centerPersonId}
-								isSelected={pos.personId === state.selectedPersonId}
-								onClick={() => {
-									dispatch({
-										type: 'SELECT_PERSON',
-										personId: pos.personId,
-									});
-								}}
-								onOpen={() => {
-									dispatch({
-										type: 'SELECT_PERSON',
-										personId: pos.personId,
-									});
-									onPersonOpen?.();
-								}}
-							/>
-						))}
-			</div>
+			{/* Node overlay — floating action buttons around selected node */}
+			{overlayPos && state.selectedPersonId && state.isAdminMode && (
+				<NodeOverlay
+					screenX={overlayPos.x}
+					screenY={overlayPos.y}
+					personId={state.selectedPersonId}
+					onAddRelation={handleAddRelation}
+				/>
+			)}
 		</div>
 	);
 }

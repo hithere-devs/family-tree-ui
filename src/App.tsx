@@ -31,6 +31,8 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
 		'tree' | 'gallery' | 'profile' | 'menu'
 	>('tree');
 
+	const handleOpenProfile = useCallback(() => setActiveView('profile'), []);
+
 	// Load tree on mount
 	useEffect(() => {
 		refreshTree();
@@ -120,7 +122,7 @@ function AppContent({ onLogout }: { onLogout: () => void }) {
 					<div
 						className={`h-full w-full ${activeView === 'tree' ? 'block' : 'hidden'}`}
 					>
-						<TreeCanvas onPersonOpen={() => setActiveView('profile')} />
+						<TreeCanvas onPersonOpen={handleOpenProfile} />
 					</div>
 
 					{activeView === 'profile' && <ProfileScreen />}

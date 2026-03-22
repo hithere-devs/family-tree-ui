@@ -1,5 +1,5 @@
-const DEFAULT_API_BASE = 'https://api.family.hitheredevs.com/api';
-// const DEFAULT_API_BASE = 'http://localhost:8080/api';
+// const DEFAULT_API_BASE = 'https://api.family.hitheredevs.com/api';
+const DEFAULT_API_BASE = 'http://localhost:8080/api';
 
 function resolveApiBase(): string {
     const configuredBase = import.meta.env.VITE_API_BASE_URL?.trim();
@@ -188,6 +188,61 @@ export async function getSubtreeLayout(personId: string): Promise<TreeResponse> 
 /** Fetch full person details (for profile / edit views) */
 export async function getPerson(personId: string): Promise<PersonResponse> {
     return apiFetch<PersonResponse>(`/persons/${personId}`);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Viewport-based tree loading (server-side layout)                   */
+/* ------------------------------------------------------------------ */
+
+export interface ViewportNode {
+    id: string;
+    x: number;
+    y: number;
+    firstName: string;
+    lastName: string;
+    gender: string;
+    isDeceased: boolean;
+}
+
+export interface ViewportEdge {
+    sourceId: string;
+    targetId: string;
+    type: 'PARENT' | 'CHILD' | 'SPOUSE';
+    status: string;
+}
+
+export interface ViewportResult {
+    nodes: ViewportNode[];
+    totalNodes: number;
+    totalPeople: number;
+}
+
+export async function getTreeViewport(params: {
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+    zoom: number;
+}): Promise<ViewportResult> {
+    const qs = new URLSearchParams({
+        minX: String(params.minX),
+        maxX: String(params.maxX),
+        minY: String(params.minY),
+        maxY: String(params.maxY),
+        zoom: String(params.zoom),
+    });
+    return apiFetch<ViewportResult>(`/tree?${qs}`);
+}
+
+export async function getAllEdges(): Promise<ViewportEdge[]> {
+    const data = await apiFetch<{ edges: ViewportEdge[] }>('/tree/edges');
+    return data.edges;
+}
+
+export async function recomputeLayout(
+    personId: string,
+): Promise<{ nodeCount: number; durationMs: number }> {
+    return apiFetch(`/tree/${personId}/recompute-layout`, { method: 'POST' });
 }
 
 export interface CreatePersonPayload {
